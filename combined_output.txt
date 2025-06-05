@@ -1,3266 +1,0 @@
-C:\Users\Kamran\kamran-aws-project\.gitignore
----------------------------------------------
-# ==========================================
-# AWS DevOps Project - .gitignore
-# ==========================================
-
-# ========== CRITICAL SECURITY FILES ==========
-# NEVER commit these files - they contain sensitive data
-
-# AWS Credentials
-.aws/
-*.pem
-*.ppk
-aws-credentials.txt
-credentials
-config
-
-# SSH Keys
-id_rsa
-id_rsa.pub
-*.key
-*.crt
-key-pairs/
-
-# Terraform State Files (Contains sensitive data)
-*.tfstate
-*.tfstate.*
-*.tfstate.backup
-terraform.tfvars
-terraform.tfvars.json
-.terraform/
-.terraform.lock.hcl
-crash.log
-crash.*.log
-
-# Environment Variables with Secrets
-.env
-.env.local
-.env.production
-.env.development
-docker/.env
-
-# Database dumps and backups
-*.sql
-*.dump
-backup/
-dumps/
-
-# ========== APPLICATION FILES ==========
-
-# Node.js
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-package-lock.json
-yarn.lock
-
-# React Build
-build/
-dist/
-.DS_Store
-
-# Logs
-logs/
-*.log
-log/
-
-# Runtime data
-pids
-*.pid
-*.seed
-*.pid.lock
-
-# ========== IDE AND EDITOR FILES ==========
-
-# VSCode
-.vscode/
-*.code-workspace
-
-# IntelliJ IDEA
-.idea/
-*.iml
-*.iws
-
-# Sublime Text
-*.sublime-project
-*.sublime-workspace
-
-# Vim
-*.swp
-*.swo
-*~
-
-# ========== OPERATING SYSTEM FILES ==========
-
-# Windows
-Thumbs.db
-ehthumbs.db
-Desktop.ini
-$RECYCLE.BIN/
-
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
-Icon?
-
-# Linux
-*~
-.nfs*
-
-# ========== TEMPORARY FILES ==========
-
-# Temporary directories
-tmp/
-temp/
-.tmp/
-
-# Cache directories
-.cache/
-.parcel-cache/
-
-# ========== DOCKER ==========
-
-# Docker volumes and data
-docker-data/
-volumes/
-
-# ========== DOCUMENTATION ==========
-
-# Large media files (use Git LFS instead)
-*.mp4
-*.avi
-*.mov
-*.wmv
-
-# Personal notes
-notes.txt
-TODO.txt
-personal/
-
-# ========== SAFE TO INCLUDE ==========
-# These files are safe and should be committed:
-
-# !README.md
-# !.env.example
-# !docker-compose.yml
-# !Dockerfile
-# !*.tf
-# !*.sh
-# !package.json
-
-# ==========================================
-# End of .gitignore
-# ==========================================
-
-C:\Users\Kamran\kamran-aws-project\alb.tf
----------------------------------------------
-# Application Load Balancer
-resource "aws_lb" "main" {
-  name               = "devops-alb"
-  internal           = false
-  load_balancer_type = "application"
-  security_groups    = [aws_security_group.alb.id]
-  subnets            = aws_subnet.public[*].id
-
-  enable_deletion_protection = false
-
-  tags = {
-    Name = "devops-alb"
-  }
-}
-
-# SSL Certificate
-resource "aws_acm_certificate" "main" {
-  domain_name       = var.domain_name
-  subject_alternative_names = ["*.${var.domain_name}"]
-  validation_method = "DNS"
-
-  lifecycle {
-    create_before_destroy = true
-  }
-
-  tags = {
-    Name = "devops-cert"
-  }
-}
-
-# Certificate Validation
-resource "aws_acm_certificate_validation" "main" {
-  certificate_arn         = aws_acm_certificate.main.arn
-  validation_record_fqdns = [for record in aws_route53_record.cert_validation : record.fqdn]
-}
-
-# ALB Listener (HTTP -> HTTPS Redirect)
-resource "aws_lb_listener" "http" {
-  load_balancer_arn = aws_lb.main.arn
-  port              = "80"
-  protocol          = "HTTP"
-
-  default_action {
-    type = "redirect"
-
-    redirect {
-      port        = "443"
-      protocol    = "HTTPS"
-      status_code = "HTTP_301"
-    }
-  }
-}
-
-# ALB Listener (HTTPS)
-resource "aws_lb_listener" "https" {
-  load_balancer_arn = aws_lb.main.arn
-  port              = "443"
-  protocol          = "HTTPS"
-  ssl_policy        = "ELBSecurityPolicy-TLS-1-2-2017-01"
-  certificate_arn   = aws_acm_certificate_validation.main.certificate_arn
-
-  default_action {
-  type = "forward"
-  forward {
-    target_group {
-      arn = aws_lb_target_group.app.arn
-      }
-    }
-  }
-}
-
-C:\Users\Kamran\kamran-aws-project\ec2.tf
----------------------------------------------
-# AMI Data Source
-data "aws_ami" "amazon_linux" {
-  most_recent = true
-  owners      = ["amazon"]
-
-  filter {
-    name   = "name"
-    values = ["amzn2-ami-hvm-*-x86_64-gp2"]
-  }
-}
-
-# Launch Template for Application Servers
-resource "aws_launch_template" "app" {
-  name_prefix   = "devops-app-"
-  image_id      = data.aws_ami.amazon_linux.id
-  instance_type = "t2.micro"
-  key_name      = var.key_name
-
-  vpc_security_group_ids = [aws_security_group.ec2.id]
-
-  user_data = base64encode(templatefile("${path.module}/user_data/app_userdata.sh", {
-    github_repo    = var.github_repo
-    pg_host        = aws_db_instance.postgresql.endpoint
-    pg_database    = aws_db_instance.postgresql.db_name
-    pg_user        = var.db_username
-    pg_password    = var.db_password
-    mysql_host     = aws_db_instance.mysql.endpoint
-    mysql_database = aws_db_instance.mysql.db_name
-    mysql_user     = var.db_username
-    mysql_password = var.db_password
-  }))
-
-  tag_specifications {
-    resource_type = "instance"
-    tags = {
-      Name = "devops-app-instance"
-    }
-  }
-}
-
-# Auto Scaling Group for Application Servers
-resource "aws_autoscaling_group" "app" {
-  name                = "devops-app-asg"
-  vpc_zone_identifier = aws_subnet.public[*].id
-  target_group_arns   = [aws_lb_target_group.app.arn]
-  health_check_type   = "ELB"
-  min_size            = 2
-  max_size            = 3
-  desired_capacity    = 2
-
-  launch_template {
-    id      = aws_launch_template.app.id
-    version = "$Latest"
-  }
-
-  tag {
-    key                 = "Name"
-    value               = "devops-app-asg"
-    propagate_at_launch = false
-  }
-}
-
-# BI Tool Instance
-resource "aws_instance" "bi_tool" {
-  ami                    = data.aws_ami.amazon_linux.id
-  instance_type          = "t2.micro"
-  subnet_id              = aws_subnet.public[0].id
-  key_name               = var.key_name
-  vpc_security_group_ids = [aws_security_group.ec2.id]
-
-  user_data = base64encode(templatefile("${path.module}/user_data/bi_userdata.sh", {
-    db_host     = aws_db_instance.postgresql.endpoint
-    db_username = var.db_username
-    db_password = var.db_password
-  }))
-
-  tags = {
-    Name = "devops-bi-tool"
-  }
-}
-
-C:\Users\Kamran\kamran-aws-project\main.tf
----------------------------------------------
-terraform {
-  required_version = ">= 1.0"
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-  }
-}
-
-provider "aws" {
-  region = var.aws_region
-}
-
-# Get availability zones
-data "aws_availability_zones" "available" {
-  state = "available"
-}
-
-# Get Route53 hosted zone
-data "aws_route53_zone" "main" {
-  name         = var.domain_name
-  private_zone = false
-}
-
-C:\Users\Kamran\kamran-aws-project\outputs.tf
----------------------------------------------
-output "alb_dns_name" {
-  description = "DNS name of the load balancer"
-  value       = aws_lb.main.dns_name
-}
-
-output "app_url" {
-  description = "Application URL"
-  value       = "https://app.${var.domain_name}"
-}
-
-output "bi_tool_url" {
-  description = "BI Tool URL"
-  value       = "http://bi.${var.domain_name}:5000"
-}
-
-output "mysql_endpoint" {
-  description = "MySQL RDS endpoint"
-  value       = aws_db_instance.mysql.endpoint
-  sensitive   = true
-}
-
-output "postgresql_endpoint" {
-  description = "PostgreSQL RDS endpoint"
-  value       = aws_db_instance.postgresql.endpoint
-  sensitive   = true
-}
-
-output "bi_tool_public_ip" {
-  description = "BI Tool instance public IP"
-  value       = aws_instance.bi_tool.public_ip
-}
-
-C:\Users\Kamran\kamran-aws-project\rds.tf
----------------------------------------------
-# RDS MySQL Instance
-resource "aws_db_instance" "mysql" {
-  identifier     = "devops-mysql"
-  engine         = "mysql"
-  engine_version = "8.0"
-  instance_class = "db.t3.micro"
-  
-  allocated_storage     = 20
-  max_allocated_storage = 100
-  storage_type          = "gp2"
-  storage_encrypted     = true
-
-  db_name  = "devopsdb"
-  username = var.db_username
-  password = var.db_password
-
-  vpc_security_group_ids = [aws_security_group.rds_mysql.id]
-  db_subnet_group_name   = aws_db_subnet_group.main.name
-
-  backup_retention_period = 7
-  backup_window          = "03:00-04:00"
-  maintenance_window     = "sun:04:00-sun:05:00"
-
-  skip_final_snapshot = true
-  deletion_protection = false
-
-  tags = {
-    Name = "devops-mysql"
-  }
-}
-
-# RDS PostgreSQL Instance
-resource "aws_db_instance" "postgresql" {
-  identifier     = "devops-postgresql"
-  engine         = "postgres"
-  engine_version = "14"
-  instance_class = "db.t3.micro"
-  
-  allocated_storage     = 20
-  max_allocated_storage = 100
-  storage_type          = "gp2"
-  storage_encrypted     = true
-
-  db_name  = "devopsdb"
-  username = var.db_username
-  password = var.db_password
-
-  vpc_security_group_ids = [aws_security_group.rds_postgresql.id]
-  db_subnet_group_name   = aws_db_subnet_group.main.name
-
-  backup_retention_period = 7
-  backup_window          = "03:00-04:00"
-  maintenance_window     = "sun:04:00-sun:05:00"
-
-  skip_final_snapshot = true
-  deletion_protection = false
-
-  tags = {
-    Name = "devops-postgresql"
-  }
-}
-
-C:\Users\Kamran\kamran-aws-project\README.md
----------------------------------------------
-# kamran-aws-project
-
-C:\Users\Kamran\kamran-aws-project\route53.tf
----------------------------------------------
-# Route53 Record for ALB
-resource "aws_route53_record" "app" {
-  zone_id = data.aws_route53_zone.main.zone_id
-  name    = "app.${var.domain_name}"
-  type    = "A"
-
-  alias {
-    name                   = aws_lb.main.dns_name
-    zone_id                = aws_lb.main.zone_id
-    evaluate_target_health = true
-  }
-}
-
-# Route53 Record for BI Tool
-resource "aws_route53_record" "bi" {
-  zone_id = data.aws_route53_zone.main.zone_id
-  name    = "bi.${var.domain_name}"
-  type    = "A"
-  ttl     = 300
-  records = [aws_instance.bi_tool.public_ip]
-}
-
-# Certificate Validation Records
-resource "aws_route53_record" "cert_validation" {
-  for_each = {
-    for dvo in aws_acm_certificate.main.domain_validation_options : dvo.domain_name => {
-      name   = dvo.resource_record_name
-      record = dvo.resource_record_value
-      type   = dvo.resource_record_type
-    }
-  }
-
-  allow_overwrite = true
-  name            = each.value.name
-  records         = [each.value.record]
-  ttl             = 60
-  type            = each.value.type
-  zone_id         = data.aws_route53_zone.main.zone_id
-}
-
-C:\Users\Kamran\kamran-aws-project\security_groups.tf
----------------------------------------------
-# ALB Security Group
-resource "aws_security_group" "alb" {
-  name        = "devops-alb-sg"
-  description = "Security group for Application Load Balancer"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "devops-alb-sg"
-  }
-}
-
-# EC2 Security Group
-resource "aws_security_group" "ec2" {
-  name        = "devops-ec2-sg"
-  description = "Security group for EC2 instances"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    from_port       = 80
-    to_port         = 80
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb.id]
-  }
-
-  ingress {
-    from_port       = 3000
-    to_port         = 3000
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb.id]
-  }
-
-  ingress {
-    from_port       = 5000
-    to_port         = 5000
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb.id]
-  }
-
-  ingress {
-    from_port   = 5000
-    to_port     = 5000
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "devops-ec2-sg"
-  }
-}
-
-# RDS MySQL Security Group
-resource "aws_security_group" "rds_mysql" {
-  name        = "devops-rds-mysql-sg"
-  description = "Security group for RDS MySQL"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    from_port       = 3306
-    to_port         = 3306
-    protocol        = "tcp"
-    security_groups = [aws_security_group.ec2.id]
-  }
-
-  tags = {
-    Name = "devops-rds-mysql-sg"
-  }
-}
-
-# RDS PostgreSQL Security Group
-resource "aws_security_group" "rds_postgresql" {
-  name        = "devops-rds-postgresql-sg"
-  description = "Security group for RDS PostgreSQL"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.ec2.id]
-  }
-
-  tags = {
-    Name = "devops-rds-postgresql-sg"
-  }
-}
-
-C:\Users\Kamran\kamran-aws-project\target_group.tf
----------------------------------------------
-# Target Group for Application
-resource "aws_lb_target_group" "app" {
-  name     = "devops-app-tg"
-  port     = 80
-  protocol = "HTTP"
-  vpc_id   = aws_vpc.main.id
-
-  health_check {
-    enabled             = true
-    healthy_threshold   = 2
-    interval            = 30
-    matcher             = "200"
-    path                = "/"
-    port                = "traffic-port"
-    protocol            = "HTTP"
-    timeout             = 5
-    unhealthy_threshold = 2
-  }
-
-  tags = {
-    Name = "devops-app-tg"
-  }
-}
-
-C:\Users\Kamran\kamran-aws-project\tf_test.pem
----------------------------------------------
------BEGIN RSA PRIVATE KEY-----
-MIIEowIBAAKCAQEA2j5hB4SupdWUNTeWxTm6SKdv6Dn+MpcS8wqPyVjpDZVOoKV5
-3w2aB0E+82V43z43u2vxDQFYhIo6VM9Jr7dFa3C8G20jGsO9JM3xXRlQrrFKptFd
-Qk1l3cpuQ5hj1NhJFpqMUwQOK8QHE6fIXlKDYSHIk46n8MjqxJIISHaH4fkT7Uqv
-oLl41ez7lE/ljFxlPJifJrvGQCHPxnuYAU4iC6CBFODBk9wt8Tsc9uOjr84stA7V
-ABTF88o3HdjLbvmAAuKx+WQ0cyRXCcK2l2YGWs9b4OapH3j7LLF+grq2Ut7ljqx3
-rWIQsgV/Rljm4cjrougFURSvJbmKCp2LP+VL3QIDAQABAoIBAFQf42rwfBm0YDK7
-QMS5YdMLp5lOcWuyzD0e/xnPydXQjcRixL10EsFlJwzPOm5jHzyBeSNYN3Svi5iR
-ZofzDzFA/WFdCkEQ3mHHeJg4X99Wu73dyiL6jp+Vnjc0EJdE37d0z05Yq9W29Dth
-W1zwVXAlg5lNTfMEn2oyGDtGZU527DXy5ZvUEIwdvB0KNvbu8H1RBFNGkdel4ziP
-VKvEiYgD95Hb+HDaNw51DKrZdvvfk7/3/iMJMygkRPScTQ08O/LCEFRJwczVCzqg
-CTXUnXbpPMFxtZ77H62TkBe8sqpLivmmpHkA7+Tey7TcqfAmm6rTISf/pIRS1sX6
-l8dteUkCgYEA8CO00bWMrZXrVyU4gotxFD31xhXVFHmNLTGxJGJMFbkILCYOdjF/
-MMFtinJFwZRMeX17jBmrFJb+c7Ux55/Wr0FWuf0LubJXYgLysEMOWb1LNEsRtl4W
-B8T1QZEMnwnT7kiErSSaKPalrfxaMOm91o/ezD9q3jIE0ojMzobYTi8CgYEA6Kh0
-+h+xDnSeRJnVF2TRtDjj4+f9+HeE+s0woN4WumpqIDf4zMOkG+KkqTLQvH9cAZKD
-AkHOYVpJ4KAxUiu+8eyN8aNuSVri95VsP7+40vI1GBgL4gcUSRwatWv3edD5ub/y
-gaKl99i8K86+dFWNbNGLGQ4WkSExZFdChZ10L7MCgYArnlC5xsBGx3R338rj63Ae
-vSJnWI/bqDh8fQowEarAR1u0qTT3QwZXVMsQ2rDQ+J7rcl9+kysAEm0ll0P5To8w
-Ri36mnwGvt4gb2ilm4h/xGJknT4aYfyebKgfwLkKKj7UiVeQG5Xk2ug9MhkvyUUy
-M+/EKcC/m1ZE55RL7zJbAQKBgERv+SjyVZTY/Q1U6vfcskr/SRnrTivejIFyBlHr
-wmfHkbw0er1Q9180hhc3WWt5U0krHdp2HQ1KD91BggCX2a00VnS0DGcLkyQdEiCW
-dvmmQbP6rtQoHPF8kOa5Aa0Vqb/YFK/JdmS3nnKMeD2kRNuzr+UI3d6HEw5fFLRV
-Iq49AoGBAKRVK6GX2cC+zqvqLWpgahoYvDDD2PRT9KIUOoVveAXx3sp6NUkAeZF9
-6Ptiqoh4kCQhTMcJxu5I0CW9MDv2+YbKA+z+Bs/HhsY6jZVavoXsSovFdSKZ2vx6
-1jz+IFmJ75cx9SR4ZtrRXxC4ugAq1/Zv21v3Ip2Ba5trGjRLvXRo
------END RSA PRIVATE KEY-----
-
-C:\Users\Kamran\kamran-aws-project\variables.tf
----------------------------------------------
-variable "aws_region" {
-  description = "AWS region"
-  type        = string
-  default     = "us-east-1"
-}
-
-variable "domain_name" {
-  description = "Domain name"
-  type        = string
-  default     = "kamranshahid.com" # Your actual domain
-}
-
-variable "key_name" {
-  description = "AWS Key Pair name"
-  type        = string
-  default     = "tf_test"  # Your AWS key pair
-}
-
-variable "db_username" {
-  description = "Database username"
-  type        = string
-  default     = "admin"
-}
-
-variable "db_password" {
-  description = "Database password"
-  type        = string
-  default     = "Password123!"
-  sensitive   = true
-}
-
-variable "github_repo" {
-  description = "GitHub repository URL"
-  type        = string
-  default     = "https://github.com/kamiy2j/kamran-aws-project.git"
-}
-
-C:\Users\Kamran\kamran-aws-project\vpc.tf
----------------------------------------------
-# VPC
-resource "aws_vpc" "main" {
-  cidr_block           = "10.0.0.0/16"
-  enable_dns_hostnames = true
-  enable_dns_support   = true
-
-  tags = {
-    Name = "devops-vpc"
-  }
-}
-
-# Internet Gateway
-resource "aws_internet_gateway" "main" {
-  vpc_id = aws_vpc.main.id
-
-  tags = {
-    Name = "devops-igw"
-  }
-}
-
-# Public Subnets
-resource "aws_subnet" "public" {
-  count                   = 2
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.${count.index + 1}.0/24"
-  availability_zone       = data.aws_availability_zones.available.names[count.index]
-  map_public_ip_on_launch = true
-
-  tags = {
-    Name = "devops-public-subnet-${count.index + 1}"
-  }
-}
-
-# Private Subnets
-resource "aws_subnet" "private" {
-  count             = 2
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.${count.index + 10}.0/24"
-  availability_zone = data.aws_availability_zones.available.names[count.index]
-
-  tags = {
-    Name = "devops-private-subnet-${count.index + 1}"
-  }
-}
-
-# Route Table for Public Subnets
-resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.main.id
-
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.main.id
-  }
-
-  tags = {
-    Name = "devops-public-rt"
-  }
-}
-
-# Route Table Associations for Public Subnets
-resource "aws_route_table_association" "public" {
-  count          = length(aws_subnet.public)
-  subnet_id      = aws_subnet.public[count.index].id
-  route_table_id = aws_route_table.public.id
-}
-
-# DB Subnet Group
-resource "aws_db_subnet_group" "main" {
-  name       = "devops-db-subnet-group"
-  subnet_ids = aws_subnet.private[*].id
-
-  tags = {
-    Name = "devops-db-subnet-group"
-  }
-}
-
-C:\Users\Kamran\kamran-aws-project\.git\COMMIT_EDITMSG
----------------------------------------------
-initial commit
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\config
----------------------------------------------
-[core]
-	repositoryformatversion = 0
-	filemode = false
-	bare = false
-	logallrefupdates = true
-	symlinks = false
-	ignorecase = true
-[remote "origin"]
-	url = https://github.com/kamiy2j/kamran-aws-project.git
-	fetch = +refs/heads/*:refs/remotes/origin/*
-[branch "main"]
-	remote = origin
-	merge = refs/heads/main
-	vscode-merge-base = origin/main
-	vscode-merge-base = origin/main
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\description
----------------------------------------------
-Unnamed repository; edit this file 'description' to name the repository.
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\FETCH_HEAD
----------------------------------------------
-20cde55f80d40c0ea6f80be41101c951fb7be1db		branch 'main' of https://github.com/kamiy2j/kamran-aws-project
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\HEAD
----------------------------------------------
-ref: refs/heads/main
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\index
----------------------------------------------
-DIRC      h@Ï˜»+0h@Ïÿ2L~l          ¤          RÖöR×S2(ét'ÀİĞñ@¢ 
-.gitignore        h@ÏB(rÌh@ÏB(rÌ          ¤           ·„3kôØ…£VÕÂgªAæ½ÿw{ 	README.md h@q4]èh@Çqœ´          ¤          tÍnt G÷}«µ¹Náni¾hŠ alb.tf    h@Âƒ ±J¸h@Â» óÉT          ¤          =Æ0&Û)ÃÚ1¬ö‚tiXòo·" combine_files.bat h@ÅV1ìh@Æ4¼Q@          ¤          ÚÇ–ÿ¹éà8¦ıİÜìg¼µ;z docker/.env.example       h@}NfŠìh@á¢\È          ¤          ŸœC6»¼”_“˜u	\YÆÆ±¨Ñ docker/backend/Dockerfile h@}Np'ˆh@}`ı          ¤          ÊG5öp]¦Ky)Ã·×'´LÏÒ docker/backend/package.json       h@¾O~_ h@ÁË%|!`          ¤          áÁŸZÔ/4.¨FÁÑ…ü|# docker/backend/server.js  h@|®~·Lh@â ‹oP          ¤          <.˜2Óóö±!Ä¡œ«·#% docker/docker-compose.yml h@}#2–‹th@áÁÇö          ¤          †Å”×/’fÆŸ`àéY03dêf docker/frontend/Dockerfile        h@¾³zDh@¿ˆ6­           ¤          Ïz)	ØZuiº‚¢Àªş docker/frontend/nginx.conf        h@}9µÛŒh@}b(H          ¤          Ë´V»a|QÕÁ%kkóú	°‰A« docker/frontend/package.json      h@¾":ˆ Øh@¿‰'9ô          ¤          õ˜8¡S†²mÀ
-­g•D_¦  !docker/frontend/public/index.html h@¾4¸Äøh@¿‡²´          ¤          	ø|’”øE0ª#Èeb=QÕ3aj) docker/frontend/src/App.css       h@¾/‡34h@Æ3Ó0À          ¤          &•eêÌC“Û³$ÛJ\f5µ× docker/frontend/src/App.js        h@¾A(~{ìh@¿Œ*.úH          ¤          9[Ùf6¾,´ÈŸeºíÖ15W5 docker/frontend/src/index.css     h@¾<'Š:<h@¿‹.æŒ          ¤          u‰:|båáÓÕj¹MĞ::¹J docker/frontend/src/index.js      h@q4]èh@Æ1ºò¸          ¤          Ë·Øå€Ø[ôÒ¡Äç­Æ
-iİé8˜ ec2.tf    h@q4]èh@ns1           ¤          ªÃ{KãË¤åŒ¿È$ô„ÄÀÙ main.tf   h@q4˜d¤h@nÿòêÄ          ¤          øó¨X ‚ÛA…ï£–À´¬BŒ—› 
-outputs.tf        h@q4§Úh@n—ƒ-D          ¤          	?¿½jYq‘¹8§†__3XÏ rds.tf    h@q4²~Hh@nÀ2)«”          ¤          \—Ÿ¢(ƒ[ÇÊ?Dø÷ P˜Yß¤ 
-route53.tf        h@Ğç!mâ\h@Ğç!mâ\          ¤            æâ›²ÑÖCK‹)®wZØÂäŒS‘ scripts/cleanup.sh        h@ĞØ:…“4h@ĞØ:…“4          ¤            æâ›²ÑÖCK‹)®wZØÂäŒS‘ scripts/deploy.sh h@Ğôeh@ßŞ:ïQè          ¤          Lœ¡½#ÜÅAÂYóVc³ÕR.ƒáyu scripts/test-local.sh     h@q4²~Hh@n€—¬          ¤          	Ç´ãÆŸ¨Á>`6sãì—òå# security_groups.tf        h@q4²~Hh@n®9+,          ¤          ™Añ¢¥¡.
-HIÓ+÷ZAÅ² target_group.tf   h@|I5Nh@Ç}µ^h          ¤          
-ÌV[)EFòÄÓş5Å#êBÄæ—÷— user_data/app_userdata.sh h@|HH9Dh@|šØ@L          ¤          †®—‹I’W{ñ=@¦ {‹-è¿¤ user_data/bi_userdata.sh  h@q4Õ&ğh@ßÊ(¶„Ø          ¤          1œ\ß«€áéëÌWó/
-šËƒŸˆ variables.tf      h@q4Õ&ğh@nr ÿ|          ¤          ÏÈ¤h’ë×‘ñ9B¦,ö´S vpc.tf    TREE   ø 31 3
-³Uğ[rİÆxÄÑp>ßÓà“#docker 13 2
-Ôÿ}*~O„©[*Ã%	MWi#Nbackend 3 0
-³‹y0®tâ©']eÍ@`[frontend 8 2
-N€ÎÍ±RT×Å<¿ş»+Gšsrc 4 0
-­6T«¦LN‡ZbŠÊ	¹µs‡êj–public 1 0
-‚­Ô¢æxMç7¿2n/{;scripts 3 0
-­ÉÂ)ê©âÑ0ş¢l[ÂU*æ¡Quser_data 2 0
-ü?§pˆ¦°1jé
-Ÿ¡¯üJ¯d+6 Áöp,TÒdÏÀ&@Z’oõ.
-.
-C:\Users\Kamran\kamran-aws-project\.git\ORIG_HEAD
----------------------------------------------
-20cde55f80d40c0ea6f80be41101c951fb7be1db
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\packed-refs
----------------------------------------------
-# pack-refs with: peeled fully-peeled sorted 
-b505bf0ff784e791070eac6b42b862d228ca7d41 refs/remotes/origin/main
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\hooks\applypatch-msg.sample
----------------------------------------------
-#!/bin/sh
-#
-# An example hook script to check the commit log message taken by
-# applypatch from an e-mail message.
-#
-# The hook should exit with non-zero status after issuing an
-# appropriate message if it wants to stop the commit.  The hook is
-# allowed to edit the commit message file.
-#
-# To enable this hook, rename this file to "applypatch-msg".
-
-. git-sh-setup
-commitmsg="$(git rev-parse --git-path hooks/commit-msg)"
-test -x "$commitmsg" && exec "$commitmsg" ${1+"$@"}
-:
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\hooks\commit-msg.sample
----------------------------------------------
-#!/bin/sh
-#
-# An example hook script to check the commit log message.
-# Called by "git commit" with one argument, the name of the file
-# that has the commit message.  The hook should exit with non-zero
-# status after issuing an appropriate message if it wants to stop the
-# commit.  The hook is allowed to edit the commit message file.
-#
-# To enable this hook, rename this file to "commit-msg".
-
-# Uncomment the below to add a Signed-off-by line to the message.
-# Doing this in a hook is a bad idea in general, but the prepare-commit-msg
-# hook is more suited to it.
-#
-# SOB=$(git var GIT_AUTHOR_IDENT | sed -n 's/^\(.*>\).*$/Signed-off-by: \1/p')
-# grep -qs "^$SOB" "$1" || echo "$SOB" >> "$1"
-
-# This example catches duplicate Signed-off-by lines.
-
-test "" = "$(grep '^Signed-off-by: ' "$1" |
-	 sort | uniq -c | sed -e '/^[ 	]*1[ 	]/d')" || {
-	echo >&2 Duplicate Signed-off-by lines.
-	exit 1
-}
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\hooks\fsmonitor-watchman.sample
----------------------------------------------
-#!/usr/bin/perl
-
-use strict;
-use warnings;
-use IPC::Open2;
-
-# An example hook script to integrate Watchman
-# (https://facebook.github.io/watchman/) with git to speed up detecting
-# new and modified files.
-#
-# The hook is passed a version (currently 2) and last update token
-# formatted as a string and outputs to stdout a new update token and
-# all files that have been modified since the update token. Paths must
-# be relative to the root of the working tree and separated by a single NUL.
-#
-# To enable this hook, rename this file to "query-watchman" and set
-# 'git config core.fsmonitor .git/hooks/query-watchman'
-#
-my ($version, $last_update_token) = @ARGV;
-
-# Uncomment for debugging
-# print STDERR "$0 $version $last_update_token\n";
-
-# Check the hook interface version
-if ($version ne 2) {
-	die "Unsupported query-fsmonitor hook version '$version'.\n" .
-	    "Falling back to scanning...\n";
-}
-
-my $git_work_tree = get_working_dir();
-
-my $retry = 1;
-
-my $json_pkg;
-eval {
-	require JSON::XS;
-	$json_pkg = "JSON::XS";
-	1;
-} or do {
-	require JSON::PP;
-	$json_pkg = "JSON::PP";
-};
-
-launch_watchman();
-
-sub launch_watchman {
-	my $o = watchman_query();
-	if (is_work_tree_watched($o)) {
-		output_result($o->{clock}, @{$o->{files}});
-	}
-}
-
-sub output_result {
-	my ($clockid, @files) = @_;
-
-	# Uncomment for debugging watchman output
-	# open (my $fh, ">", ".git/watchman-output.out");
-	# binmode $fh, ":utf8";
-	# print $fh "$clockid\n@files\n";
-	# close $fh;
-
-	binmode STDOUT, ":utf8";
-	print $clockid;
-	print "\0";
-	local $, = "\0";
-	print @files;
-}
-
-sub watchman_clock {
-	my $response = qx/watchman clock "$git_work_tree"/;
-	die "Failed to get clock id on '$git_work_tree'.\n" .
-		"Falling back to scanning...\n" if $? != 0;
-
-	return $json_pkg->new->utf8->decode($response);
-}
-
-sub watchman_query {
-	my $pid = open2(\*CHLD_OUT, \*CHLD_IN, 'watchman -j --no-pretty')
-	or die "open2() failed: $!\n" .
-	"Falling back to scanning...\n";
-
-	# In the query expression below we're asking for names of files that
-	# changed since $last_update_token but not from the .git folder.
-	#
-	# To accomplish this, we're using the "since" generator to use the
-	# recency index to select candidate nodes and "fields" to limit the
-	# output to file names only. Then we're using the "expression" term to
-	# further constrain the results.
-	my $last_update_line = "";
-	if (substr($last_update_token, 0, 1) eq "c") {
-		$last_update_token = "\"$last_update_token\"";
-		$last_update_line = qq[\n"since": $last_update_token,];
-	}
-	my $query = <<"	END";
-		["query", "$git_work_tree", {$last_update_line
-			"fields": ["name"],
-			"expression": ["not", ["dirname", ".git"]]
-		}]
-	END
-
-	# Uncomment for debugging the watchman query
-	# open (my $fh, ">", ".git/watchman-query.json");
-	# print $fh $query;
-	# close $fh;
-
-	print CHLD_IN $query;
-	close CHLD_IN;
-	my $response = do {local $/; <CHLD_OUT>};
-
-	# Uncomment for debugging the watch response
-	# open ($fh, ">", ".git/watchman-response.json");
-	# print $fh $response;
-	# close $fh;
-
-	die "Watchman: command returned no output.\n" .
-	"Falling back to scanning...\n" if $response eq "";
-	die "Watchman: command returned invalid output: $response\n" .
-	"Falling back to scanning...\n" unless $response =~ /^\{/;
-
-	return $json_pkg->new->utf8->decode($response);
-}
-
-sub is_work_tree_watched {
-	my ($output) = @_;
-	my $error = $output->{error};
-	if ($retry > 0 and $error and $error =~ m/unable to resolve root .* directory (.*) is not watched/) {
-		$retry--;
-		my $response = qx/watchman watch "$git_work_tree"/;
-		die "Failed to make watchman watch '$git_work_tree'.\n" .
-		    "Falling back to scanning...\n" if $? != 0;
-		$output = $json_pkg->new->utf8->decode($response);
-		$error = $output->{error};
-		die "Watchman: $error.\n" .
-		"Falling back to scanning...\n" if $error;
-
-		# Uncomment for debugging watchman output
-		# open (my $fh, ">", ".git/watchman-output.out");
-		# close $fh;
-
-		# Watchman will always return all files on the first query so
-		# return the fast "everything is dirty" flag to git and do the
-		# Watchman query just to get it over with now so we won't pay
-		# the cost in git to look up each individual file.
-		my $o = watchman_clock();
-		$error = $output->{error};
-
-		die "Watchman: $error.\n" .
-		"Falling back to scanning...\n" if $error;
-
-		output_result($o->{clock}, ("/"));
-		$last_update_token = $o->{clock};
-
-		eval { launch_watchman() };
-		return 0;
-	}
-
-	die "Watchman: $error.\n" .
-	"Falling back to scanning...\n" if $error;
-
-	return 1;
-}
-
-sub get_working_dir {
-	my $working_dir;
-	if ($^O =~ 'msys' || $^O =~ 'cygwin') {
-		$working_dir = Win32::GetCwd();
-		$working_dir =~ tr/\\/\//;
-	} else {
-		require Cwd;
-		$working_dir = Cwd::cwd();
-	}
-
-	return $working_dir;
-}
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\hooks\post-update.sample
----------------------------------------------
-#!/bin/sh
-#
-# An example hook script to prepare a packed repository for use over
-# dumb transports.
-#
-# To enable this hook, rename this file to "post-update".
-
-exec git update-server-info
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\hooks\pre-applypatch.sample
----------------------------------------------
-#!/bin/sh
-#
-# An example hook script to verify what is about to be committed
-# by applypatch from an e-mail message.
-#
-# The hook should exit with non-zero status after issuing an
-# appropriate message if it wants to stop the commit.
-#
-# To enable this hook, rename this file to "pre-applypatch".
-
-. git-sh-setup
-precommit="$(git rev-parse --git-path hooks/pre-commit)"
-test -x "$precommit" && exec "$precommit" ${1+"$@"}
-:
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\hooks\pre-commit.sample
----------------------------------------------
-#!/bin/sh
-#
-# An example hook script to verify what is about to be committed.
-# Called by "git commit" with no arguments.  The hook should
-# exit with non-zero status after issuing an appropriate message if
-# it wants to stop the commit.
-#
-# To enable this hook, rename this file to "pre-commit".
-
-if git rev-parse --verify HEAD >/dev/null 2>&1
-then
-	against=HEAD
-else
-	# Initial commit: diff against an empty tree object
-	against=$(git hash-object -t tree /dev/null)
-fi
-
-# If you want to allow non-ASCII filenames set this variable to true.
-allownonascii=$(git config --type=bool hooks.allownonascii)
-
-# Redirect output to stderr.
-exec 1>&2
-
-# Cross platform projects tend to avoid non-ASCII filenames; prevent
-# them from being added to the repository. We exploit the fact that the
-# printable range starts at the space character and ends with tilde.
-if [ "$allownonascii" != "true" ] &&
-	# Note that the use of brackets around a tr range is ok here, (it's
-	# even required, for portability to Solaris 10's /usr/bin/tr), since
-	# the square bracket bytes happen to fall in the designated range.
-	test $(git diff-index --cached --name-only --diff-filter=A -z $against |
-	  LC_ALL=C tr -d '[ -~]\0' | wc -c) != 0
-then
-	cat <<\EOF
-Error: Attempt to add a non-ASCII file name.
-
-This can cause problems if you want to work with people on other platforms.
-
-To be portable it is advisable to rename the file.
-
-If you know what you are doing you can disable this check using:
-
-  git config hooks.allownonascii true
-EOF
-	exit 1
-fi
-
-# If there are whitespace errors, print the offending file names and fail.
-exec git diff-index --check --cached $against --
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\hooks\pre-merge-commit.sample
----------------------------------------------
-#!/bin/sh
-#
-# An example hook script to verify what is about to be committed.
-# Called by "git merge" with no arguments.  The hook should
-# exit with non-zero status after issuing an appropriate message to
-# stderr if it wants to stop the merge commit.
-#
-# To enable this hook, rename this file to "pre-merge-commit".
-
-. git-sh-setup
-test -x "$GIT_DIR/hooks/pre-commit" &&
-        exec "$GIT_DIR/hooks/pre-commit"
-:
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\hooks\pre-push.sample
----------------------------------------------
-#!/bin/sh
-
-# An example hook script to verify what is about to be pushed.  Called by "git
-# push" after it has checked the remote status, but before anything has been
-# pushed.  If this script exits with a non-zero status nothing will be pushed.
-#
-# This hook is called with the following parameters:
-#
-# $1 -- Name of the remote to which the push is being done
-# $2 -- URL to which the push is being done
-#
-# If pushing without using a named remote those arguments will be equal.
-#
-# Information about the commits which are being pushed is supplied as lines to
-# the standard input in the form:
-#
-#   <local ref> <local oid> <remote ref> <remote oid>
-#
-# This sample shows how to prevent push of commits where the log message starts
-# with "WIP" (work in progress).
-
-remote="$1"
-url="$2"
-
-zero=$(git hash-object --stdin </dev/null | tr '[0-9a-f]' '0')
-
-while read local_ref local_oid remote_ref remote_oid
-do
-	if test "$local_oid" = "$zero"
-	then
-		# Handle delete
-		:
-	else
-		if test "$remote_oid" = "$zero"
-		then
-			# New branch, examine all commits
-			range="$local_oid"
-		else
-			# Update to existing branch, examine new commits
-			range="$remote_oid..$local_oid"
-		fi
-
-		# Check for WIP commit
-		commit=$(git rev-list -n 1 --grep '^WIP' "$range")
-		if test -n "$commit"
-		then
-			echo >&2 "Found WIP commit in $local_ref, not pushing"
-			exit 1
-		fi
-	fi
-done
-
-exit 0
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\hooks\pre-rebase.sample
----------------------------------------------
-#!/bin/sh
-#
-# Copyright (c) 2006, 2008 Junio C Hamano
-#
-# The "pre-rebase" hook is run just before "git rebase" starts doing
-# its job, and can prevent the command from running by exiting with
-# non-zero status.
-#
-# The hook is called with the following parameters:
-#
-# $1 -- the upstream the series was forked from.
-# $2 -- the branch being rebased (or empty when rebasing the current branch).
-#
-# This sample shows how to prevent topic branches that are already
-# merged to 'next' branch from getting rebased, because allowing it
-# would result in rebasing already published history.
-
-publish=next
-basebranch="$1"
-if test "$#" = 2
-then
-	topic="refs/heads/$2"
-else
-	topic=`git symbolic-ref HEAD` ||
-	exit 0 ;# we do not interrupt rebasing detached HEAD
-fi
-
-case "$topic" in
-refs/heads/??/*)
-	;;
-*)
-	exit 0 ;# we do not interrupt others.
-	;;
-esac
-
-# Now we are dealing with a topic branch being rebased
-# on top of master.  Is it OK to rebase it?
-
-# Does the topic really exist?
-git show-ref -q "$topic" || {
-	echo >&2 "No such branch $topic"
-	exit 1
-}
-
-# Is topic fully merged to master?
-not_in_master=`git rev-list --pretty=oneline ^master "$topic"`
-if test -z "$not_in_master"
-then
-	echo >&2 "$topic is fully merged to master; better remove it."
-	exit 1 ;# we could allow it, but there is no point.
-fi
-
-# Is topic ever merged to next?  If so you should not be rebasing it.
-only_next_1=`git rev-list ^master "^$topic" ${publish} | sort`
-only_next_2=`git rev-list ^master           ${publish} | sort`
-if test "$only_next_1" = "$only_next_2"
-then
-	not_in_topic=`git rev-list "^$topic" master`
-	if test -z "$not_in_topic"
-	then
-		echo >&2 "$topic is already up to date with master"
-		exit 1 ;# we could allow it, but there is no point.
-	else
-		exit 0
-	fi
-else
-	not_in_next=`git rev-list --pretty=oneline ^${publish} "$topic"`
-	/usr/bin/perl -e '
-		my $topic = $ARGV[0];
-		my $msg = "* $topic has commits already merged to public branch:\n";
-		my (%not_in_next) = map {
-			/^([0-9a-f]+) /;
-			($1 => 1);
-		} split(/\n/, $ARGV[1]);
-		for my $elem (map {
-				/^([0-9a-f]+) (.*)$/;
-				[$1 => $2];
-			} split(/\n/, $ARGV[2])) {
-			if (!exists $not_in_next{$elem->[0]}) {
-				if ($msg) {
-					print STDERR $msg;
-					undef $msg;
-				}
-				print STDERR " $elem->[1]\n";
-			}
-		}
-	' "$topic" "$not_in_next" "$not_in_master"
-	exit 1
-fi
-
-<<\DOC_END
-
-This sample hook safeguards topic branches that have been
-published from being rewound.
-
-The workflow assumed here is:
-
- * Once a topic branch forks from "master", "master" is never
-   merged into it again (either directly or indirectly).
-
- * Once a topic branch is fully cooked and merged into "master",
-   it is deleted.  If you need to build on top of it to correct
-   earlier mistakes, a new topic branch is created by forking at
-   the tip of the "master".  This is not strictly necessary, but
-   it makes it easier to keep your history simple.
-
- * Whenever you need to test or publish your changes to topic
-   branches, merge them into "next" branch.
-
-The script, being an example, hardcodes the publish branch name
-to be "next", but it is trivial to make it configurable via
-$GIT_DIR/config mechanism.
-
-With this workflow, you would want to know:
-
-(1) ... if a topic branch has ever been merged to "next".  Young
-    topic branches can have stupid mistakes you would rather
-    clean up before publishing, and things that have not been
-    merged into other branches can be easily rebased without
-    affecting other people.  But once it is published, you would
-    not want to rewind it.
-
-(2) ... if a topic branch has been fully merged to "master".
-    Then you can delete it.  More importantly, you should not
-    build on top of it -- other people may already want to
-    change things related to the topic as patches against your
-    "master", so if you need further changes, it is better to
-    fork the topic (perhaps with the same name) afresh from the
-    tip of "master".
-
-Let's look at this example:
-
-		   o---o---o---o---o---o---o---o---o---o "next"
-		  /       /           /           /
-		 /   a---a---b A     /           /
-		/   /               /           /
-	       /   /   c---c---c---c B         /
-	      /   /   /             \         /
-	     /   /   /   b---b C     \       /
-	    /   /   /   /             \     /
-    ---o---o---o---o---o---o---o---o---o---o---o "master"
-
-
-A, B and C are topic branches.
-
- * A has one fix since it was merged up to "next".
-
- * B has finished.  It has been fully merged up to "master" and "next",
-   and is ready to be deleted.
-
- * C has not merged to "next" at all.
-
-We would want to allow C to be rebased, refuse A, and encourage
-B to be deleted.
-
-To compute (1):
-
-	git rev-list ^master ^topic next
-	git rev-list ^master        next
-
-	if these match, topic has not merged in next at all.
-
-To compute (2):
-
-	git rev-list master..topic
-
-	if this is empty, it is fully merged to "master".
-
-DOC_END
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\hooks\pre-receive.sample
----------------------------------------------
-#!/bin/sh
-#
-# An example hook script to make use of push options.
-# The example simply echoes all push options that start with 'echoback='
-# and rejects all pushes when the "reject" push option is used.
-#
-# To enable this hook, rename this file to "pre-receive".
-
-if test -n "$GIT_PUSH_OPTION_COUNT"
-then
-	i=0
-	while test "$i" -lt "$GIT_PUSH_OPTION_COUNT"
-	do
-		eval "value=\$GIT_PUSH_OPTION_$i"
-		case "$value" in
-		echoback=*)
-			echo "echo from the pre-receive-hook: ${value#*=}" >&2
-			;;
-		reject)
-			exit 1
-		esac
-		i=$((i + 1))
-	done
-fi
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\hooks\prepare-commit-msg.sample
----------------------------------------------
-#!/bin/sh
-#
-# An example hook script to prepare the commit log message.
-# Called by "git commit" with the name of the file that has the
-# commit message, followed by the description of the commit
-# message's source.  The hook's purpose is to edit the commit
-# message file.  If the hook fails with a non-zero status,
-# the commit is aborted.
-#
-# To enable this hook, rename this file to "prepare-commit-msg".
-
-# This hook includes three examples. The first one removes the
-# "# Please enter the commit message..." help message.
-#
-# The second includes the output of "git diff --name-status -r"
-# into the message, just before the "git status" output.  It is
-# commented because it doesn't cope with --amend or with squashed
-# commits.
-#
-# The third example adds a Signed-off-by line to the message, that can
-# still be edited.  This is rarely a good idea.
-
-COMMIT_MSG_FILE=$1
-COMMIT_SOURCE=$2
-SHA1=$3
-
-/usr/bin/perl -i.bak -ne 'print unless(m/^. Please enter the commit message/..m/^#$/)' "$COMMIT_MSG_FILE"
-
-# case "$COMMIT_SOURCE,$SHA1" in
-#  ,|template,)
-#    /usr/bin/perl -i.bak -pe '
-#       print "\n" . `git diff --cached --name-status -r`
-# 	 if /^#/ && $first++ == 0' "$COMMIT_MSG_FILE" ;;
-#  *) ;;
-# esac
-
-# SOB=$(git var GIT_COMMITTER_IDENT | sed -n 's/^\(.*>\).*$/Signed-off-by: \1/p')
-# git interpret-trailers --in-place --trailer "$SOB" "$COMMIT_MSG_FILE"
-# if test -z "$COMMIT_SOURCE"
-# then
-#   /usr/bin/perl -i.bak -pe 'print "\n" if !$first_line++' "$COMMIT_MSG_FILE"
-# fi
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\hooks\push-to-checkout.sample
----------------------------------------------
-#!/bin/sh
-
-# An example hook script to update a checked-out tree on a git push.
-#
-# This hook is invoked by git-receive-pack(1) when it reacts to git
-# push and updates reference(s) in its repository, and when the push
-# tries to update the branch that is currently checked out and the
-# receive.denyCurrentBranch configuration variable is set to
-# updateInstead.
-#
-# By default, such a push is refused if the working tree and the index
-# of the remote repository has any difference from the currently
-# checked out commit; when both the working tree and the index match
-# the current commit, they are updated to match the newly pushed tip
-# of the branch. This hook is to be used to override the default
-# behaviour; however the code below reimplements the default behaviour
-# as a starting point for convenient modification.
-#
-# The hook receives the commit with which the tip of the current
-# branch is going to be updated:
-commit=$1
-
-# It can exit with a non-zero status to refuse the push (when it does
-# so, it must not modify the index or the working tree).
-die () {
-	echo >&2 "$*"
-	exit 1
-}
-
-# Or it can make any necessary changes to the working tree and to the
-# index to bring them to the desired state when the tip of the current
-# branch is updated to the new commit, and exit with a zero status.
-#
-# For example, the hook can simply run git read-tree -u -m HEAD "$1"
-# in order to emulate git fetch that is run in the reverse direction
-# with git push, as the two-tree form of git read-tree -u -m is
-# essentially the same as git switch or git checkout that switches
-# branches while keeping the local changes in the working tree that do
-# not interfere with the difference between the branches.
-
-# The below is a more-or-less exact translation to shell of the C code
-# for the default behaviour for git's push-to-checkout hook defined in
-# the push_to_deploy() function in builtin/receive-pack.c.
-#
-# Note that the hook will be executed from the repository directory,
-# not from the working tree, so if you want to perform operations on
-# the working tree, you will have to adapt your code accordingly, e.g.
-# by adding "cd .." or using relative paths.
-
-if ! git update-index -q --ignore-submodules --refresh
-then
-	die "Up-to-date check failed"
-fi
-
-if ! git diff-files --quiet --ignore-submodules --
-then
-	die "Working directory has unstaged changes"
-fi
-
-# This is a rough translation of:
-#
-#   head_has_history() ? "HEAD" : EMPTY_TREE_SHA1_HEX
-if git cat-file -e HEAD 2>/dev/null
-then
-	head=HEAD
-else
-	head=$(git hash-object -t tree --stdin </dev/null)
-fi
-
-if ! git diff-index --quiet --cached --ignore-submodules $head --
-then
-	die "Working directory has staged changes"
-fi
-
-if ! git read-tree -u -m "$commit"
-then
-	die "Could not update working tree to new HEAD"
-fi
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\hooks\sendemail-validate.sample
----------------------------------------------
-#!/bin/sh
-
-# An example hook script to validate a patch (and/or patch series) before
-# sending it via email.
-#
-# The hook should exit with non-zero status after issuing an appropriate
-# message if it wants to prevent the email(s) from being sent.
-#
-# To enable this hook, rename this file to "sendemail-validate".
-#
-# By default, it will only check that the patch(es) can be applied on top of
-# the default upstream branch without conflicts in a secondary worktree. After
-# validation (successful or not) of the last patch of a series, the worktree
-# will be deleted.
-#
-# The following config variables can be set to change the default remote and
-# remote ref that are used to apply the patches against:
-#
-#   sendemail.validateRemote (default: origin)
-#   sendemail.validateRemoteRef (default: HEAD)
-#
-# Replace the TODO placeholders with appropriate checks according to your
-# needs.
-
-validate_cover_letter () {
-	file="$1"
-	# TODO: Replace with appropriate checks (e.g. spell checking).
-	true
-}
-
-validate_patch () {
-	file="$1"
-	# Ensure that the patch applies without conflicts.
-	git am -3 "$file" || return
-	# TODO: Replace with appropriate checks for this patch
-	# (e.g. checkpatch.pl).
-	true
-}
-
-validate_series () {
-	# TODO: Replace with appropriate checks for the whole series
-	# (e.g. quick build, coding style checks, etc.).
-	true
-}
-
-# main -------------------------------------------------------------------------
-
-if test "$GIT_SENDEMAIL_FILE_COUNTER" = 1
-then
-	remote=$(git config --default origin --get sendemail.validateRemote) &&
-	ref=$(git config --default HEAD --get sendemail.validateRemoteRef) &&
-	worktree=$(mktemp --tmpdir -d sendemail-validate.XXXXXXX) &&
-	git worktree add -fd --checkout "$worktree" "refs/remotes/$remote/$ref" &&
-	git config --replace-all sendemail.validateWorktree "$worktree"
-else
-	worktree=$(git config --get sendemail.validateWorktree)
-fi || {
-	echo "sendemail-validate: error: failed to prepare worktree" >&2
-	exit 1
-}
-
-unset GIT_DIR GIT_WORK_TREE
-cd "$worktree" &&
-
-if grep -q "^diff --git " "$1"
-then
-	validate_patch "$1"
-else
-	validate_cover_letter "$1"
-fi &&
-
-if test "$GIT_SENDEMAIL_FILE_COUNTER" = "$GIT_SENDEMAIL_FILE_TOTAL"
-then
-	git config --unset-all sendemail.validateWorktree &&
-	trap 'git worktree remove -ff "$worktree"' EXIT &&
-	validate_series
-fi
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\hooks\update.sample
----------------------------------------------
-#!/bin/sh
-#
-# An example hook script to block unannotated tags from entering.
-# Called by "git receive-pack" with arguments: refname sha1-old sha1-new
-#
-# To enable this hook, rename this file to "update".
-#
-# Config
-# ------
-# hooks.allowunannotated
-#   This boolean sets whether unannotated tags will be allowed into the
-#   repository.  By default they won't be.
-# hooks.allowdeletetag
-#   This boolean sets whether deleting tags will be allowed in the
-#   repository.  By default they won't be.
-# hooks.allowmodifytag
-#   This boolean sets whether a tag may be modified after creation. By default
-#   it won't be.
-# hooks.allowdeletebranch
-#   This boolean sets whether deleting branches will be allowed in the
-#   repository.  By default they won't be.
-# hooks.denycreatebranch
-#   This boolean sets whether remotely creating branches will be denied
-#   in the repository.  By default this is allowed.
-#
-
-# --- Command line
-refname="$1"
-oldrev="$2"
-newrev="$3"
-
-# --- Safety check
-if [ -z "$GIT_DIR" ]; then
-	echo "Don't run this script from the command line." >&2
-	echo " (if you want, you could supply GIT_DIR then run" >&2
-	echo "  $0 <ref> <oldrev> <newrev>)" >&2
-	exit 1
-fi
-
-if [ -z "$refname" -o -z "$oldrev" -o -z "$newrev" ]; then
-	echo "usage: $0 <ref> <oldrev> <newrev>" >&2
-	exit 1
-fi
-
-# --- Config
-allowunannotated=$(git config --type=bool hooks.allowunannotated)
-allowdeletebranch=$(git config --type=bool hooks.allowdeletebranch)
-denycreatebranch=$(git config --type=bool hooks.denycreatebranch)
-allowdeletetag=$(git config --type=bool hooks.allowdeletetag)
-allowmodifytag=$(git config --type=bool hooks.allowmodifytag)
-
-# check for no description
-projectdesc=$(sed -e '1q' "$GIT_DIR/description")
-case "$projectdesc" in
-"Unnamed repository"* | "")
-	echo "*** Project description file hasn't been set" >&2
-	exit 1
-	;;
-esac
-
-# --- Check types
-# if $newrev is 0000...0000, it's a commit to delete a ref.
-zero=$(git hash-object --stdin </dev/null | tr '[0-9a-f]' '0')
-if [ "$newrev" = "$zero" ]; then
-	newrev_type=delete
-else
-	newrev_type=$(git cat-file -t $newrev)
-fi
-
-case "$refname","$newrev_type" in
-	refs/tags/*,commit)
-		# un-annotated tag
-		short_refname=${refname##refs/tags/}
-		if [ "$allowunannotated" != "true" ]; then
-			echo "*** The un-annotated tag, $short_refname, is not allowed in this repository" >&2
-			echo "*** Use 'git tag [ -a | -s ]' for tags you want to propagate." >&2
-			exit 1
-		fi
-		;;
-	refs/tags/*,delete)
-		# delete tag
-		if [ "$allowdeletetag" != "true" ]; then
-			echo "*** Deleting a tag is not allowed in this repository" >&2
-			exit 1
-		fi
-		;;
-	refs/tags/*,tag)
-		# annotated tag
-		if [ "$allowmodifytag" != "true" ] && git rev-parse $refname > /dev/null 2>&1
-		then
-			echo "*** Tag '$refname' already exists." >&2
-			echo "*** Modifying a tag is not allowed in this repository." >&2
-			exit 1
-		fi
-		;;
-	refs/heads/*,commit)
-		# branch
-		if [ "$oldrev" = "$zero" -a "$denycreatebranch" = "true" ]; then
-			echo "*** Creating a branch is not allowed in this repository" >&2
-			exit 1
-		fi
-		;;
-	refs/heads/*,delete)
-		# delete branch
-		if [ "$allowdeletebranch" != "true" ]; then
-			echo "*** Deleting a branch is not allowed in this repository" >&2
-			exit 1
-		fi
-		;;
-	refs/remotes/*,commit)
-		# tracking branch
-		;;
-	refs/remotes/*,delete)
-		# delete tracking branch
-		if [ "$allowdeletebranch" != "true" ]; then
-			echo "*** Deleting a tracking branch is not allowed in this repository" >&2
-			exit 1
-		fi
-		;;
-	*)
-		# Anything else (is there anything else?)
-		echo "*** Update hook: unknown type of update to ref $refname of type $newrev_type" >&2
-		exit 1
-		;;
-esac
-
-# --- Finished
-exit 0
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\info\exclude
----------------------------------------------
-# git ls-files --others --exclude-from=.git/info/exclude
-# Lines that start with '#' are comments.
-# For a project mostly in C, the following would be a good set of
-# exclude patterns (uncomment them if you want to use them):
-# *.[oa]
-# *~
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\logs\HEAD
----------------------------------------------
-0000000000000000000000000000000000000000 b505bf0ff784e791070eac6b42b862d228ca7d41 Kamran <Kamran@DESKTOP-V20P97P.(none)> 1749077826 +0500	clone: from https://github.com/kamiy2j/kamran-aws-project.git
-b505bf0ff784e791070eac6b42b862d228ca7d41 20cde55f80d40c0ea6f80be41101c951fb7be1db Kamran Shahid <kamiy2j@gmail.com> 1749083541 +0500	commit: initial commit
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\logs\refs\heads\main
----------------------------------------------
-0000000000000000000000000000000000000000 b505bf0ff784e791070eac6b42b862d228ca7d41 Kamran <Kamran@DESKTOP-V20P97P.(none)> 1749077826 +0500	clone: from https://github.com/kamiy2j/kamran-aws-project.git
-b505bf0ff784e791070eac6b42b862d228ca7d41 20cde55f80d40c0ea6f80be41101c951fb7be1db Kamran Shahid <kamiy2j@gmail.com> 1749083541 +0500	commit: initial commit
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\logs\refs\remotes\origin\HEAD
----------------------------------------------
-0000000000000000000000000000000000000000 b505bf0ff784e791070eac6b42b862d228ca7d41 Kamran <Kamran@DESKTOP-V20P97P.(none)> 1749077826 +0500	clone: from https://github.com/kamiy2j/kamran-aws-project.git
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\logs\refs\remotes\origin\main
----------------------------------------------
-b505bf0ff784e791070eac6b42b862d228ca7d41 20cde55f80d40c0ea6f80be41101c951fb7be1db Kamran Shahid <kamiy2j@gmail.com> 1749083579 +0500	update by push
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\02\b38b79063014ae7481e2a918275d65cd40605b
----------------------------------------------
-x+)JMU044e040031QpÉOÎN-JËÌIe˜ãl¶{Ş)ñ“g”rrÄD;¶qÅE¨ª‚ÄäìÄôT½¬âü<†Sî¦ß
-b™–yWjŞ~]}ŸÏùKPuÅ©Ee©E@eeæs‹G]Ñ7Ñ[ávğbëæe ˜.±.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\0c\b7d8e580d85bf4d2a1c4e7adc60a69dde93898
----------------------------------------------
-xÅTMoÛ0İ9¿‚p{X‹Åİ²¢Û%‡†İ.í­(Ùfl¡¶¥Irú…ü÷‘’í|´ÅºÓ|Hl‘ÉÇ—Õ:ƒÙ§/³w{púó¾I/áRw6ÇIÁï‰¼sB6*¡·F>êVÔªíîxš 4Úya1ÇÖÃ¼íõ]‹ÖAxæpİ‡%7²-TíÑ†X€V6H^sHø-!3ÀRÖ::ã¸Çv6¥ÔÓjÙL§÷_OÄÉñ´43º`5YM&{p!»6¯à
-SK°ĞN©U.½Ò-\¢]œ‰EªŠÕ!Jø>Š‹3&ÖÄX„±¸P÷\KmÜ”¦ŒQ5²D¡
-FËà¹Kiß¤t³E©*Ø½u^¶9
-ÿ`kõ³´Q¹Õ|×->ˆ¾á®¥´épÆíZš\8Ì;«üƒ(­î%İá„Û–ó¥mîZÆ7‡L:<9Æ6×¾
-¦9àûdÿÉH_¥.ºWGcÔÕ*ø+ÔæªäC?±RùªËhâFÇâğÆ!A0¥¨ˆüÊÏk‘‰¡©!kIóø]§ØF«Öœÿ5îãÆq6d	9ğá¦“‘Îİi&7'¦§á0ÜÔ<¨5úçĞƒÃ6ê3-fp1X¶ G§µñ9àÕÁ³ÄËR8ƒ¹Zô¤wı¸ÎÜFwâ˜K¼Èüüâu$‚nğ}ÛEıÖv^Ãe.IJøÁÄ|ãâI
-t1.zwõ"–õï6 éJÆÎ{ARÄkHÒCuÓôcã]—µèSÓe¤ ×‡7q	½´%ú~ƒ¤mYHb˜˜u&6­)Q?%V˜
-eí+‘W˜ßÆ±ú~qÆÕ
-§U¸s˜±EŞ¿`ùL–²Xˆ\™ÓNsÇiG‘ú©¬e&`İV­€5ˆu„4åÚµA:è<c$…ôèo#iÿÀƒŒê;šâË‹ -·ÚÈ’2	éEOÉ²v¼”=MÎÎáJëÎ{ÜQá‘^dJxòŒLš¿"|ş£ÖWP›¢)2*øàö>öü4yğíÿãNF*ûé5uµcW®IsF%~®K¯Éğ†rÒD_ÒRòx£.­õeG]25ó\ù"w´Ã.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\0d\9838a1530786b26dc00aad671d95445fa6009d
----------------------------------------------
-xmQMOÃ0å¼_a‚v£+HHìT‚hÒ&`‡PÚxÄ"MªÔëÄ¿§Û@h9$şxÏÏ±sr¸›Ş_ÈËùrö¾Y=åÒe#Ù=à´ÿT½ÈF Ò¢6Ñš%²†ÂêX#+±ãm2’üDtJP¼ q«Äxµ~\<Ï>Ö¯‹qºÕM—›´×/¯/êu‰J4„û*DĞ¢}+²'ÃVl‰˜ôÎ5'&í’ºĞÕíÙRl±Ä¤.Ä?Õ®nús–a°."UL]ó'ı96Ëª†9–ªÊQ¡ÄñÛLì0û“éîæ—(ó`¾ÃòaË6aÑ @¯s‡ğ¢ıÖ·ÒãÎ[ªAWÕD¦'â°CQ"†À"“ië÷KK­V¼Ûëü1šØ.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\0e\c37b4be3cba4e58c01bfc82408f40c84c4c0d9
----------------------------------------------
-xM±nÃ0D;ë+wO¤µ{@ c¦ [.%«h
-÷ÛKJ)b¼»Ç“::xİŸ1ã5ğ?€ésqL½ÍÄÑ…	ZhÎ-vûf«Î²ëÅRB øÅ© ¾hvÀ8¸KàùE,ŠĞÙ°Ïpªl€UäÕ¬ÆüÓ¡ÑĞ½×Gm“‘w²µLºP÷3¼QÌè<vÎ»ô·0Q4=&,»mjÂS½&ÒÊıƒş–D§#!&êƒçª²€GtSeN8Ê7Ü§íŞ•­*òÜ™]–³%)·¯è#™õï3Š.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\14\d6f652d7533228e902740227c0ddd0f140a205
----------------------------------------------
-xUÛÛ6í3¿‚Eú0‚
-GÒ¦n¼¶ai7ÈÓ‚’Æ6cITIJ^¿ôÛ{H¹»ÚĞ LÎP£á™3å•Îù/ïß½ûáÿğİ?ö†Ï¿¤<¦~İZ¾1úO¹Ø+§ö6‹ïöö=±æÑv‘-¢ù’§Itù+¿Z,“täö«ä6ÙòB×µrÜÈß©Š,P@;ãIã¤j¸¥ÆTO¼”Nú›<òÈPIS²²LÈ“±‰h©ök{d8˜Âİ;6Ò|ïÔŞûJÓ?øg:[¦Ê;cåem—ÃÕ‘ÎXã¤i+•Á=x)#cäN›š§N:âW÷Ûh@lŸAş>ÜÎzËGILFr.‹c×2÷¯[˜÷ÒØâ›Õv³‘,*]Å¡¨¨´¨û‹4	2`'M¯ŒnjğÆo¥Q2÷tŸ”;ğ”@•Ôôañîd5ˆ­ÑeW8åïÆsQRO•n½VâV2³ğ®ˆ‘¢\"•eW£°dSò!8‹pí_Vÿ„‡3Ì§ÅÆç›Íå“-Ö«—…ƒKVº$PÁìw5°!ŒkÚzZRŞí}¸v–¦y¡ƒ`m†ç-8—{šÚ¯şöÑ§xKñ±SUÉr¿«²ŒÇé]ê|ƒÀj©÷–áºP~qüC4ÛµY_J¶U¥›'ÈoPî…¾ˆ>_Å<‰Ùzûjô·i„¸™èmİ×½ß§'mA\‹ÆQU©?9üÍ™P%Io¨jŸ u²¡ò»¼ò3Bs × N‘l?F'O<ß*ßcöÔ†U³ÉßŞ×(‚õ&Ù"u«O<ıšfÉõ«1|QM©#;tunE™3:¸9&{tºªQì§m}–‰ø¸XfkY¬ÓQÄ¼m+Š5àƒ”eºî‘dÌhòßC’TÓİ{ ¢ÙÙÉ3¸@¸YoçÛWFâÊ¨nµ‘æÌKeÀŠ6ŠĞ–u;CoúU–‘,H÷ÈJş&­4UÓ‹ú”­x}Æ|äÏÃ‹COñ^W]õMFßĞkS/ÏØåéóŞÃ›ëd•İóÔïRš=ñšJ%/£öm‡Vı„ù»¼J¹j¬#YúqU·¿b•½ò²î±êŞCÛÁ’o´aÓ5[Çë ´‹çÀÒùUÂ³5_¬¢åª|<Æ¿4Ä­ÜQˆÛtWa†ĞåCá¨üÍãøq›ÌãëDÔ¥WÂT¢{Y£¼~!
-ß–V[g”=NZı7Æk~&»=øı2†‹ƒG|ÿ%Á8AŠôîÿ~=ÿÀúX2.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\16\75893a7c62e5e1d3d56ab91c8e4dd03a3ab94a
----------------------------------------------
-xeM
-Â0…]ç³K»0ÅU« èÂEê	l2J í”t½½,¸ûx?ó¦i©Åj9İ@‘¡Æ‹c¸Fê@ÇÄºPSkª¦îÜSg]°Ÿµ±¡÷ø0nõí0|›Æ
-‹¡õ#C$bX–å¼q²ËX‹šyr÷Nn›ò¡Å„»çÑg:ut*‰(s1S åûsæWäq#¢ÈiÜ&.í"/^>Uø.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\1a\1f4e8f80cecdb15254d7c51e3cbffebb2b479a
----------------------------------------------
-x+)JMU04·d040031QpÉOÎN-JËÌIe8*T?åºş¤´có¼40Ny•U•—™W¡—œŸ—ÆP%)¢ÙÈyCX0ª¯4sWÓ¢r«şAU$&g'¦§êeçç1l	›·;±&ğêAÕììÏ¿87t:®01 …‚Ò¤œÌd†&)qµWê=«ğ}n¾ß(OV¿Ú¢ ¸(™a­YÈêe>~íQI]§8wn-n•5 †OHY.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\20\cde55f80d40c0ea6f80be41101c951fb7be1db
----------------------------------------------
-xK
-1]ç½¤ÓI&	ˆ¸wé	:?'jf$Ä…·wÀ¸}T/®­ÕD~7zÎ”1M°”Rœ¬‹:I‹Ò«œŠTIeôŠ”tâÅ=/‚Ùà‚¥X§³õ-fSĞÜD‰ÈE¶IKÁï1¯.Ü:/py®	nõC÷ó­q}âÚN ­öè”ÑöhÅ¶nGşKu©£ò~ñcRGÌ.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\2e\981310321bd3f3f60cb121c4a19cabb723258f
----------------------------------------------
-x•_Oƒ0Å}Ş§¨‹¯u8œšğ€BÔd¦ñ‰ í"‘µ„²ibüîÒ–Ú1‰s{÷ŞsòŠåàüòâ€“f[„£ «†Ñ–P,4 ù¦¬0RPˆÖ{‹ÀñDc}³â•4«²"xßZ6kÖ´r³ØÁØ¶,‰ßX¶	İ–İÉ5¡­:) Èw¯“ÔÃî»K—ÑÜ™du)yLêÎO5xu×)u@/wİË±yÍG üÃûLx¿?¼/ÏOıÅ£S7oŠ¶d´w AD‰#æÍËMzÄ‰sô*…`ÅŠ¬za¼ıÜ¥ä¨¤„BpvjO€ç&î•ûj•®ÄdËjó¼ŒıHB!˜áuIDèÆñSyŠÒ‚aÆùkğÉÔ>4÷ÏñÃ\'1Å¯aT»Ïc
-mÛ:Û_©st6ª~¦ˆ>›)~Äëš„Ã‡½_Nß$.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\39\5bd9661c36be2cb4c89f65baedd63105355735
----------------------------------------------
-xeÁNÃ0†9÷)|«„	‰l7†&8$¦=€“zÅZWqÊÖ!Ş¤LHˆ“ı;¿~±õbáöşîÊJ;ÁgĞcì8,àf™Å^B2{ìÙO08ŒNš¨oàÁs8lĞmg½ÎÎê-uB°{®sÿ&V’”îõ4uê&'Ô;;†4–ù
-CÂHŞ±æˆ°Å E<FáöW=‘ÿ Äá…Fºäh¶¥ÈûBjdœa±ö"éC·€¼Ñ3*µ³­—³=ıóu'uèiY}U•“–ækü9€Ê™òh†(l(øR$ Ëu%AÅ£–Ÿe+SÌ¼Çn/At@÷³àzN·r2ÊçÔJl)š<ÊßãÎƒ«.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\3f\bf1bbd6a59719091b90d38a7869e5f5f3358cf
----------------------------------------------
-xíRMkÜ0íÙ¿B¸ç5ŞdCCÀ·\mi›c)B–f][R4ònMÉïŒìıHrH@Œ1Fï½™Ñ›×ö¾ëÍõÕ‡âÇí½ø2İÿ,î&å4ĞQƒ(Õ¥i¥]R”Ã„})şBX.Ù­…(øiDi`ç®f1ÀuÖAFÆHî ¢õÅ×U]rÕ¥—Ô½BÌUÛ*]VƒÕÑ3^Õ÷^«FbòQus‹F\Ôê|MhÄºftÈ4…Ó`Ü¥\ı€ƒÓq
-Ô"OßˆG('7œHz¼®iY7"Ä4b§bE´Ã	n²÷Ñh'\r´DĞc´i’]ôcÖğÍ²ıÏ‘*”ÙÄÊš_ó<8¶Ò¢œ‡#ñ²ºs°”u3¸m«ôµŠxŞÉ ÑzñÓ	İ[güş¸AËúò¦®Wõ†¾|q®I88òŒMDİM¦­òßUl[ëT/Ñ©€¿}¢ºÙ`òz˜§‰>æ_·ªÇ<tR;Ãñâ+/â¸‡SìŠ§¢˜“ıÍcê"üw¼ÃÌ;ãgDšåuĞ8[4£çY_oøü=êoFı`ãcÿ÷—y?yÃa¢Ğÿw¹ßm.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\56\5b294546f2c4d3fe35c523ea42c4e697f70397
----------------------------------------------
-xİVQOÛH¾gÿŠ)å¡Õã\¹mR ‰ƒ\êTÉÚx'¶‹½ëî®C"Èïì® ‡r¼ÜËÌî73»ß|óÙÓBN¡·¿ßÿéõ«hš‹hÊt¯áºâÌ è¥6Xr¡+
-Pø½Îr¨XrÃRÔ®¹„e]BíƒÂåf©
-— Ò\,€Ëä¤¹±eÎš¤Ç~õH–•ÔèÃ“ZÃNfL¥¢ˆb²zÚIdù,=Z|¤°@¦QÓú­($ãÑ¼×éíuº0l€áî›Z°!Ôo7ÏåÛ%DµVQ!V8&|‰6²9RVJ?/şûàb’cç›†^7ğ÷™éÉ9´7RUÙ„Ğ²V	º›i4u÷ºÜƒcÖ¶Âç)¥ØoÚy"Ø´@×(j“2 QÍó¤íïcb
-@|ØŸzñ	!¨ÂsÀ¤Ö”Œ\7RÉºòìå'd§ín`ø…åfR­f³¸Z.+ØëZØQ!‚É”FÍÍTË áe²ÄhĞQCŠ€Äáwï¼:b´VUpwĞ&™„Ó5vÆòù/(d&)TK0“§›Qä‹rÊ++»Ühi³Iio„ã5-íé,Ü—^PÕn°jå³5€.ÁæyjoC0 “çIˆœÊ2gïƒÔáy®¤(QİtSÇù“K˜N.?Á!t( ÆŸ/'Wƒİ»*3©ÍÊ..ÇWƒw¿ö{öŸãáÕğãprâ1dŒ”‰w=9ûe«:œL¾\ırÅ´¾•Š¯‚?şüyŞÖ*—ú{Ñ”ó®b¿ßİo€Šzğ¦®hJûM_½É´9€ßÜœa|2<ºŠ‡£ıÅ×ãó1™DÇ#6œQ+¦VŒŒ“¯9¡öP?ÖyÁİÄ©Z8ÁR;Šœ¨Í¥ğëµ6š‰hı„¼Bş¨\"…a¹@¥ŸÆ¾)fyZ+„ç¤LÓ¡æG¨”\Ğ¬›Ú8‡A„M¹Y&·³·¢!§³ÀZ)ŞI‘“Óø½g¬.Lì·ß{½;hì¼3~¸5k•öª5)ì¬¹“Ä–jgräÚ{½ß:]úİ;èw»]Ÿnƒ$»‹3¢–Îñ™T_w­ø¶ ş
-ÇÈŠğlDP…¥43ÎÕÖˆORİ2Å‘‡ôDqş/b2$¿gŸ^˜e¤$‰âë®N2,Ñ­’BŠz)1ïˆ«ÀhKıÿ;ÔóÂd/ãÇGü·­È©“¶æØCóñbÇ&Oıl«ÂÙ3ãÕŒ1rå1ú÷©ZºyÕªfÓ¨uƒs™Úw¢©µ³mÓ:¥iOÿĞØÒÄ£he!š3ûõ’ÒWªĞºd‡şóõü§Tzğùé$^}mlTuK›‡sP.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\7a\1914298109d813115a8e7569ba82a2c01eaafe
----------------------------------------------
-xAOÃ0…9ïWøĞkI%†„ÆÁmâ´[”6‰hãÊñF'ÔÿNÒ€Š8LäğdÅß³ŸÛZØnn"ò>7^ï£`€»¦iËuF<PßD¦˜H@"«è£
-o>LÊÉĞSf|°8½Íµ\á‹>ú#T'ö‹(P‹sñr^‚üIcFÿ;ÑÈ4]ôhb'2î”jM÷ÁîîÓ)*ÓëÚGíĞØtû3EÊ%½êW4}ı²‡Šq Am¬å«†'âÃm*¨ÊŞäÒ“>ş´rõÏ!{&!¨bçpÀâ™7ó/E.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\7c\129294f88f4530aa23c865623d51d533616a29
----------------------------------------------
-x¥Vín›0İï<…¥¨R*…’´ôÏªI{¼FÆ4é¦¼ûîµ18Ğ´İÖ¯TŸ{ï9çˆK“íîñğeóÜ4ä÷‚ÅÎÊ£%Ïëˆ$¬VL>ÁÕŠ×^Áx^¨ˆ¾ÿRàÅ˜&?s)º:HÉkF¥—Kšr8µ
-vaÊò5YGÆ(ñïàÿãaÓ-Üİ#@"J!#r*¸bO‹Ëb]@š2©›ihšò:ÈV²ŠøÓ¢2éÊ_ëïM ˆ"Ğ(•9‡qôùLÔÊkù/ ›`T_<õó}¸q‚d¸€ôAâÏƒMĞ#Š†&\½BÑÍãˆVQ^÷-½OUtn}¿9c<¡xåj~ÓµLz™•Æq%ĞllÃpm}ÍÉ„öP«®EAİú^,”•áÜ2JÑx/Á‰ËN®ğPÏøØR±u÷”h4éÈåxÏĞ{ÊÛ¦¤@QV2=Ná~Kà®U<{õĞåšï÷NïÆ¿S^xİtJ÷1ĞçoVj3{DjQƒçf\„†
-Ç%¶!\^²^±ë¹âh3êNë’`pš+Ørÿíù{¨]y½	¶«ºL:Ùâ5‚ÛE}£q%iİrÅ¬ÀXˆ…å{îÚ)f’¨/ v-Ô*©h\²ô~fºå>¤ş¾·ø(raÏÍ%ú°C@!ÈRœXê4TòÖhi–cbN«@ÁÃS]ep^A|üô«ÀkŠáÔ]Uƒé%kU+Ü44v¹ÆŒ«èyµÁÙkdò^‡Ô•+û.´³1l^B¥é`äª`BÙ}ÄÏÙN:Öx{+îæúN	š3iE	,Ü¨yİh±Ól‘a6˜´wã2Ë2G
-=à$1‡cóÌÓ†ĞçÚ
-´Õ%»¨ãXó ã[mUíÌ77fû|Æ½ËæP÷í¤F7a¸ÿ›pòvSÿø™$üƒI5›}ŸòÊØÆ»^qäb<;ñË ¸}ØÆ¢Ô[j-g#¤øZ±”S²‚¥´Á{<À$&„ô«Âğ<u`óúŞ‚Ÿ·<`:|„¤\²Ää¢‰ìıòãÁ+I11¾¹xNŞÜÄ»,. ¡İÙ.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\82\1a170cadd47fa2e6784de737bf326e1d2f7b3b
----------------------------------------------
-x+)JMU0¶`040031QÈÌKI­ĞË(ÉÍaàa±0˜½mSî®µé²S]â—1Ì J”y.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\95\1565eacc4393dbb3241890db4a5c156635b5d7
----------------------------------------------
-x­W_kãFïs>ÅJ-ƒ#q	}Id7I¹ƒpqîé8rki‹[¯Ôİ•“àÓc¿E?]?IgVkY’“#…B;ÿ~3¿™YÏe>‡“ã_ßı”­Š\[¸A‘Øl 48³Ââˆß.L,T°Ğù
-š…g^G<f¹ñGî}w4£iQ„‰1ôí`QªÄf¹úas äÊXøL>´Aû‰ß¾À¸	 øüex¶“TøÀ"NöcıŞ‘Ş€+<…Á`¸™äW¨Ú&d.ÒLİ;Wõ{ÇÄBHƒ¤Ğ8^¸ûtsEA:OĞ˜Õ:¼¹œßŞM¯¯éWŸÿN¾œ^“³€p'*Àm²t O5®q´ _Â<©ÚúV?yKÀ©ò±V—.¸§N¨FSPf‘Í<ˆÌ‚«Kx6øúóÆÇ[E¢È"
-U›¯ş¶ÁÖD˜
-+üq‰  Ö¹®+È^Ùi.1tŸƒÁ%ŸÖh)Ï\ImN¹N«”¸”)!å³ˆ¶`Û«ZÅiÊ)Ü%[Æ°Ğ¸Fe/p!Jië<¼&síD¹y)S#ğl§Ì31øûÌ®ÀÛÈşWJ	û6¡oO¶Ô
-Çœ8ÍÖHaÌGêŸñ!µèáÄs*^¢H)åİã£úk#/ßM.pıgaàW9·¹Ìˆ1ÔòqDgŞ	“?J)hÂ$ßÚbğÙ%LK›Ã,Òu)Ó~R¨„bøn.fqTl‘aÜ„Û•Ÿ˜š^õCåoí@3D-DÌÒ£E®W-9†t<™¦)PiGî·®7Ö€\ÍÊù*³ãggÕ–!+™*JÛÀwq‚}*(Ïíaï¤"Áe.)çãC.G_`-d‰ã'bÈÛ¤ıäê|)Ô=IuƒPc7,ÃĞë›İ¸ÄĞ
-Mã!t¦«aßœÆ¿ÊLcÚñ½¥›Ä}˜—<«û=œÎJ?²WõÛàMÎKk‰>u	«ı!¤™s‰éxã7L ÛøÄ*¢7Ub ´¢˜cÌ¯A^ÕÚ‰#æÜîKy67-@„{‰à23vàìØ@°á0¡Duo—Õ°OõVğõÈØÒºÙ¯"BÓjM>¸toĞ8§G÷:K;q±²h%Š `17è»ÖXÌ®oø4vòa–ÒLİ2V<J„Ş7ït—'“ZÍ5a>Ùe–ê‡ ÖR5{ )³¢ÆóÓSàö„ºB¹ØÃ„nMÓ;a‡¡Í¯roÈ§3«‰Á°¢::õN‹±é8¢”õ£öZtO¨uşZ†ºğ™Nxü}P-]2Z|+,MŸıõáL=WÕçŸ/OL¥ho‚çjCuù÷Ÿ¿aJÓ|{UÙË‰çJ‹çËî;«çşß£vùôöĞ®c
-‰¹0oŸ›ÿy®m4Lß>‚Ùì*z{{M;÷E÷3Lˆ¯pŞ+H‹—¾Í"^Ô5ÕYºgUøèşŸ¤õ½ïgÿBe„8.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\97\9fa228835bc7ca3f448ff8f7201d509859dfa4
----------------------------------------------
-x¥SËjÃ0ìÙ_±¸=‹”Ğ’
-=…ÒKB¶•F XF–Úàï®,W.¨Æhgö1;ÊµÉávöğxu+Ó:y7‡•,Œ-ak,,Ş–‰•im!!‡†ÛÄ­¥xY×)€oSI®JÈ N°)˜Bl/TÅá•ØKÀ“ùìæØ	ËJC(N±>EûªGĞ"MğBh%_.f ,““•ÖùP°¬Ÿ¹±Å	š~ÿ2b‹ ²ºNr'ì§t|'…v;$8ÛJLÙ'}’œTnù
-ïÆèsêåê¿âåê"íPK§ıÜÌg3ì}Ø`ƒÃ¬I0U5NT…d¹â;gu›kUpUo†!_¤uj«
-”>p¸eeªà–æÜ ²9ªhÃÔh1.EA‚’ƒÀ{®ì¨Ê/Q{NÄP6ltğHÌÅMM4ğÈz²çø×-èNÄŒ6eÁNáÈ´w:Á›§ô¸¿èr®6n:iV¡„¿Â•ÜH’0_ŠQÉã®"f=ÑâÆGÜ=­z|FñzÂ­Ï7b.xÆıU.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\99\41f1a20ca5a12e0a4849d32bf7815a41c50eb2
----------------------------------------------
-xe‘?o„0Å;ó),:s¥WÔ…¡S;UØ£D’(ªªâ»×æS3 …ßsüü\Y_Áå9x„RÆV#¼G?h|„·¬QwIÔƒ£ÒÊïAØJà¢-«Súèû› 8ÙkàS@ZëÉ‡!#–a›>â_s¾G^yËâ²übÍ”0õò ·¢ë©—ÆLí´´Ø	Õiu]úh'+«¹âv
-À8jÒï?;š¡óv}ú¼0ãPÇIÚ[!û~ak ½DjŒ}óœm’y‰İ¤ñ§î£$D1Ê¦1*ã$6áÁ½p M¯ı¸æ¶k
-¸,F·r¯ næ´P¶yâ½ |òfÈÂ¿­ÌÉüŒ‰£.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\9c\4336bb9ebc945f93987509085c59c6c6b1a8d1
----------------------------------------------
-xmOKÄ0Å=Ï§º71mñÏAaÒ­ ÒméRTD¤m¦M“¶Â~{ÓìºPğfÂ{ó~¯‘ºÁ«Ûë³f“Æú“°™„äØi‹[Í)ü°©ÛoRÊ<Cå–w—1«¥Šğ~wxÎË§Íc‰Qm$yñŠÆ)ç¹sÑ
-Ã`…Õ@¨LB¹{Rú—jºóëVøÛœ~HjÓ“¡¬¶cZÉıÚXÍ§vZÍ¶ÅiBÏñ_ÚeB'J´Ù{¢ŞyI°³ºÿ#:yÆæŸµ/‡¬GŒæ*NÂp1ğCÒ—"ß¥xÇ1@µKK É6ø¸&‚\d;ï¿‡€‚á.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\9c\5cdfab0780e1e9ebcc57f32f0a9acb16839f88
----------------------------------------------
-x•RMK1ô¼¿âÏÛÒzP„=‚‚Š"âiyÙM»iw“÷Ò²ˆÿİìöC*-¬¹2ïÍL†‘µ•ps;½X£×(k7”{µĞÖøJ JE…×ãd î?Ş`G[§`w2 öÚ,ú9†š{ îJ§‘|'É¯TiÔ&7Ø¨“Z==>Xl…GCVº¶pŸ6xÀ‚Ö°=6²RíyİŸU3ÔşŸ^x³"°÷ĞqE1p‘ëØB)ó@ÊŸÏ%’‚ÃÔàD°l´ù½Ìm¬/OG¿—;L–›íx'ÓëK·HÒ¬×]Q2`ÔñÏš« cçœ=iåQóS±tÎFë[x}éˆ‡•¯bvt7oeºFŒcEt;]vw¬JŸ:o—ªàQœŠIı oõz.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\9c\a1bd23dcc541c259f35663b3d5522e83e17975
----------------------------------------------
-x½ÛnÛÈµÏúŠÚ'XH²ã,
-Øğ¢¬l8²+É
-'hrl±¡H†3´c8~ìC‹m‹>u±‹ô¡E~A¿'?Ğ|BÏ93^D9r¶X=ÈâpÎı~|Æ§ğëGÿjå^÷4ˆº§®œ¶Z+°óy„<ˆ=7„½Ø{-RØM’0ğ\ÄŒ…TAt#/õ3h´¤PĞ +Ğ(@Ünt"Mã”xïÅaœJ8‹Sˆ3•dª5ìïí¬½\ßÜ<YßŞÜ˜­µ¾öûƒâèı®ppøÂœmlonâÙ“ƒã~që1zùólébMÈ>Í"U1$i)ğˆáç\ğáD*WeòÁC¸n~„7Igõš¨İœì¾Z½ôn`uÃiİ´Z.ó<!Yš›“Ñq¯×š€/İ4Bİ7QÕrßœ¼Øöß4A³f›`Q¯7'ıáğpX«*Ã›
-ï5ªD¤âMÈ@	Ùâ³IåÌ(ë	œA“ßT.w:‡õÇ_hs¦œåH"Tu
-Ÿ¯à«{hÙÌ|h_€¯ôş×ĞõÅE7ÊÂpÔTD|›,£Ù`ÙÁ1şŒh£X¨;p
-WŠü$'¤RÙÊä§Œú,à?ü5Ïw/%1á[ÿ6JÄ÷ï(G‰ÌRòä÷?[.”'Í"òAœ­aLDg1Ü‘cƒÒZªÏ·Á¥XKÉ”äçS~
-OÅéUÎö	ºQÛG3ïÀ«Û¼Æ8²‰(‘gÉ©ÎÒxÆ4’4ş=¢‡4F§²¤>í7•Œ ÎQ9´À„›+¥ğïq©†ãi„>fL´º¼8Rn‰T¶ø`R,É'„BÒ"¡"t5F=ßÄ\ÙıG*Ntò~èêP€ó½j. ë‰&Œù~ÄRÔÖ±ÑáÇ—<úÚF:¼{*ÍD™ªs…UK‘PA˜¼Á±(n-¢Íê.ÕB‡%>'KĞï
-<¨ÎN§¬"]0_Z¾µ}±şHıîsÜU“G\º˜¨\J‘^XeZt2Á“I~²À^à=b¿XÿØ‘¬F˜Í Ë|óÔÅæ ı/b 	××áUÕMwaØ±˜‰n@{½Ñél®ßl£152&/KChK˜*•lu»!õ&ÓXª­¯Ö××»Sá†j
-¥€Nr£Ñ%ëç:~b0ìP¶f)P¹t;ÿœâák{b?½DÎN`5Àºÿ6×çr]Ñº0Õ§NïÌ°®YEÃe€é%"TR 'ù²ÊG*T–F¦şò+2")½ÒıHÉB~UÂÄ“X¤îfEò3ã&šñ3ì÷4çı—2àÁ_Ú‚ØFV« 6a
-ÜR{¦LbìZe‹^Mìã‚ÈÏ»ùF6>MäÓeÈcXG¿©|²zrN,Ògıİƒñ³É°?::Œú;«–	ó‡L#=ÜY­aqàœ§
-í7àh¯œZ&0ìæYàÃ€<2M*)×^ƒ"”:~æ‚úÃOß5ƒkß(BX3<2‰#)¶`u–¬ÚW²Æóx»E×ù«ÜÛ’&G[IM{ââ0‘°'fñª²1@SöD¤ªÊÌ-à|øáïÿıÏŸ ,’·gÔ¼b	áÊaìúÂ×¸´±{´o}IŞ¢’Ê=«Xá!2d_Z\üæxÔ–wI7	ºŒ¥î•U<§|yòò¼Ëø–«¿„=YŠ²´p§4j-o‡¶ÇÔ½ ÙEf¢T‚æü·Æ9+°Á`ÔlÕÔ<ïï¨fÆRWsOEÍ*Æ©qÂÆYB‰#æñç)±Àq%ÖDÈ•8—èå4¾,ÚKêÌ°ƒmÑiÑè×—Õ¼l;J¼¥ıƒ)V»úZÛè0+ZUY„<ŒÏ%<],ëâD"RÚƒp%eæ]ÆÍÊ­\0Şvgœp›êÂ¬h¼Æİiã›cªDjÂÕĞæ‰4×
-6çÍ¦pyƒ=+ö®3ŞŒicèó	Û’[æ¯V|>¾ÿşf×¦Ìbv¡P<õQµi€6ãË®æá*ÎÒrPÑöÇ÷ßıÙªbk¾ƒ¦bPÖÜ‡şÆ:¯ˆPÔwW ~úC=Ó­8¯q€™v½ıñı_ş	6-‚³É¶
-ú×oÁFŞm 1&›-Öè˜fœeisPj‰*µ^
-÷ï›Y¸2¡–ÙÓ¿µÍmÄ
-Ëÿ«\\Ó
-
-ê·¸[•8„!Pã€Ugœğ
-²(Äu! ²r#Â#…°éıö€ßçWôË,Ux¨`yÄÛÉà¼áá2«uà†§ƒ9÷öpá˜ŠûXœÍUË<[oæ©ÇÁ¥&ì€CÚZ´=Ñ9
-;î£¤fEaë19x¡Ğòlß¬Ü…ã?!ªÅ–MxØ¨ĞÆAøfÂ"ÅR?Ç}	äawfö¾­Za»ÊÇ÷ÿú÷'·äesåêXf%¯áÊÄ9!­À3ÜÕ„ä3zJéÜô<›¡AMš&ŸÂ5ôÆVûÆÁüÄ€¤m+]Bé™>¹­I?ö"½ ËÃzåh{Û>:”5ª|1Ôtİ/^«êL‰"ÔôYÌ½®Çœğ×
-qĞNóš
-fºÉÇ¢<OÆûÏi*ñ]%àË/¤7‡£] IØR‰¼DÒúººçû(OªŠ:­uqY_ÎğUBZLmº©ÈoJ‡ùWÒnèe!ñóiÅëöš…Û;î÷(õƒü´¡PÇÃ’ÊŞY‹¼15_º8î\çØoªë<¦¾K÷\Tro§«w¯²KBµ9IväT[ş“4D»ĞÁÄËQ´’<ÁW°ˆà"C-Ë½ÃRsÆ1ÁÊ×-¦ÈËG¤HPÆÕuB2ÑİSiøeçX×<µTê&°f4µm-(cãˆ8öã¦)K(ÉŸbéÀÉ ƒÍo9È·ull¬Áş`LËRe<Ôšş¿ç?L ¿qş0›¤Û.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\ad\3654aba64c4e875a628aca09b9b57387ea6a96
----------------------------------------------
-x+)JMU041b040031Qp,(ĞK..f¨š4åG¿«Á*å©I¶W³4‘”d3LM}uÆyòíÍ*n{Åˆ¦™n½U‘™—’Z6Æ2úfšŒÙ>-'æ§îz{ÍÕ4ÜEĞ ±ÒN«š¤§/_ÍÚ)Óç{ÁÊj§ ±»8`.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\ad\c9c229eaa9e2d130fea26c5bc2552ae6a15101
----------------------------------------------
-x+)JMU044c040031QHÎIMÌ+-Ğ+Î`x6÷ÑìM¯9{wk®+ºqèIOğD¨ª”Ô‚œüJŠJR‹Ktsò“s@
-ç,Ü«|ç¨ã¡ÈÏaÉ›¯é5?¬, ƒ	6.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\ae\978b499257817bf13d40a681207b8b2de8bfa4
----------------------------------------------
-xmS]oÚ0İs~Å­ºW“Æ4!ñ m“JËÕ4©rìÛ’Ø®?ÖEÛşûlÜĞõ%>çÜ{Î±SÔ²€OÇï./Ò¢iAÍ>I.áNqjLk,6@‡JKë4>¹J#EÙ–hã¸„Ö5à¢ˆ´¯GŠ´À%; †²²aÁ×—q7’ãàÑÀ0K˜Ó5“_ÃŞZe&iªU3a¤ÓL6©AëÔn˜~Á8®¼¹3hMØ·´¨ñ˜ÄçĞG;Qc2[FZôzFáægÎ8dCâŒÏeå)¡–NEm@ÉĞÏÚ	‚©+¡eîûdVê¤†Zê#aœĞ<
-DA*•M›ÆöòYœLºÉgT¿ç;­ìqv¼èo’rU5¢‚Qülœ8­&…¥•@ÄØ =…p¸O ´Aè<Å3ã,Ë&#ÿ‰«ùn1ßm¬—S%-5š>´˜ßÌVË)ÇŸR^ôÁõíf;ûÇwùr3}ÿ›»Ğq0ò·OXÏò<5æYj~Før›o#aï]E°ËòZ´o¥{ªëh>ÿv¬®PÄJ9®,+QÆšÂğß£ï?Õÿ oê"
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\b3\55f05b72ddc678c4d170193edf13d3e0932318
----------------------------------------------
-x+)JMU0µ´d040031QĞKÏ,ÉLÏË/Je¹ö-èz°‘ÆK¦&õw/|tXÄ
-Uäêèâëª—›Â°½Å8ûËVÉÅaW¥¯r|¶÷y5TQbN’^IÃÙ¼÷ïµ«·îì÷{˜—¹/£±Kª"9?7)3/5>-3'µX/)±„á˜ÚmÍÃ·d×|k*É”‰ø”¿]ÉÄ Rò“³S‹®ü¯åÕªóoY­uXR•Ó7<SÙjZj²È>í76Üˆşriá‘çkqeŞ}i1ª"713¤„ïpµ÷ãÓKö0î?¡Âñ…§åÈ›P%ù¥%¥%Å UŸWD(4İvl}¿xÚÆ-kœz¦Ïæ…ª*J«°ß/½7+²pÂÄ¼ËÛæÅÇGœ‡© ”jj2gúüEÍÑÇOÙ»ôÿø® 0#òşˆŸŠ“‹2JŠÖ<¤ùjå£‹ÿåD
-Õz¶0jNqjriQfIe|zQ~iØÖ-ÍŸ·â ]‚YñéÇo¦zªU]’X”ZQ²z¦ãÇE<Kêqyx^ÖşŞåx”oÄêÒâÔ¢ø”Ä’D†?öË:ú–m2ÌzÉ5aıú?^ë¡Æ•%e&&âhÖœ˜û«Ù¾|}&ü³>×¬ÓbÍó;`ê
-’A*N0s,É˜ôú:ïÄ–NËÄEt¾m	  ¨ù.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\b4\18e3c69f9ea8c13e603673901be3ec97f2e523
----------------------------------------------
-xÍUÁNƒ@õÌWLè¹¡/=X5^ªQ{4†ĞeÛlvİİjã¿;H)`Û4¶·y³;³óŞfŸëzp1Ã”’¥dz7’/…%©âKI(ØÁ»òUúÚŒf6|X ISÈ#°CúÆ…ê#ÜWñ*"™ĞŒ'€xQ%½æ\Â…#Aš1áAã 
-B¥9ş&ˆÏÂìş˜V02ˆ–XhaKØªJ{˜Kû‚K'Fpî`€æß¡RPH®9á‘IÀ¾4¦ a¡ôg'/
-ãO¶3HÿÇıŒøço%‡C¯¡æwt‡¢ôçg6½2‹UêõOZ¿Qó~Ã0Àá¸‰ÜOÒƒëK·£|(q·ÉáÖò1ÅY¢´‘ŒÚY2®Û@_¬Ls?’1ómTêP.kÅnz3Umİ²t$:¦…†³ë=Ç©Ëª¼©ÓŸ›* 65‚¢êæŠ)Âåf:.™ä÷µs¿?^Máv5}˜tt½•¯Ôk´Íû˜ÔO“Zo€¢İŸËÛsÎj; •yÍ ®vÄ™–í¸mİVR"á+ß…¿1!²Ã-èXgvâdİİ^ˆ9zõåœM¿€NLm4ÈÎÕŠ²#.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\b4\569ebb617c51d5c1256b6bf3fa09b08941ab10
----------------------------------------------
-xuRËNÃ0äÜ¯°"q£¡© U¸ğˆ"'ŞÀV×²	õßñÚnB%zÙyìÚ­¦V<íš›Ÿ••‘TÏ¢Rp$ë×½#À¨êÉ#8d˜oêM½É¨ux”UÁØ(Ó!øˆ³s”;]`ñ¾ÙÕÛ"?ãkEÃUÎwm`«ê17)8*å„”Ğ}S?DÃ˜sJAÉöAº”J¬/2Ì’èÖ¨g\Îd¸ÌğÿØ$´LÀò–—.‚×hÂ+™?cdi	›7zK•æãHkËÎ¡û·I“ï³sëèÛÇ‡Ò˜šgëH]È¯7›¿lêííbl(2¿v:	#d?4(¤Ö%«lÿh²>Élª¥¢İ—£ÄùÏdMl_èô4]å½ì¥Ã™^–\~§½ö.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\c1\1c9f0b175ad42f342ea846c1d185fc10037c23
----------------------------------------------
-xÕYKoÛØîÚ¿â@*ğÈò#SŒî@±G¨-yô˜6‡¯e6©Wv< ]EgQLWİtÕÿ×ŸĞïœ{ùd9’ÓYÔ0 ›<÷ÜóüÎCQrA¿İıfç7[[$Ã÷*İºğñ[™J¯UZÿS¶1LâL“ú8IU–Ñ¥êÃ4L•ëØGNí[K3LÒş¿|{GgIÑ§*‹É¨|?¾Í>DÕ—ò`gk’&ã0SLhïñ'ĞÙëİâú³N·ç BÒºŠ¯ëòè§Ÿèy£ÑÀq¨yA¤nüTm€M}š)—Åtk`“?°œ¡|Ë>xäkÿÂÏÁ±êf±òLF¢ÙÅêF”tï6ˆ®’LïÏJs|şªÓër¢dèGLâl‚v’¤‹´…ğ{»;LX	˜5ûÍÍ'ŒuL²àBøB½t|ĞóºBêã06÷ûYv“¤ÁíY³×ûC§{$ôg–j{g÷	}*="®:LâËpÜ¯ıéëŞ÷'«Àç6Øİm|½Ü†v3˜+[Â
-ó1LxµâP‡~ş¨
-wâ&RÙ†ŸİÆCºœÆ;”yd!Åt:½•O"„İBd”*˜ÎğAù7~¨É„]ıÃT¥·î;yAtØõš}'µ^R»Ó'ï­^¿G¹–(‘ĞjĞY·uÚì¾¦ß{¯ÙÈæ'öÇŠ~hv_5»îv£Q^íÁÉII£Æ~ÍÚ­ïŞ=´ÃTùZç¾¦~ëÔëõ›§gtä½lNút8èv½vÿ¼xcÅ¨Éç;4–ŠøvÖò ´™‰ 46’çus5âÓ¾vsrÄ+X3ç
-yIWWÕpªÕ#­Ûj÷©9èwÎ[m¸åúı_XúsÄÃ­ŒíDª%#×ÉCØÆz%¸Ê¦CÆãËiİ2ˆJÀĞ×Ã+rUš&©	zb\†ò°Â²HŸ1—äõ¾³iş0ü6>	¶wø
-‰\)í:[WÊôh]­MT®¬F¿“äÂßßïHÔÉ´¯§Ù>9æÌ-ÉsŞ'û‚îPT¹µºNZ½NO§a<rk&P-3ÈÛõF½!°J„"¦I<Vñ¾·;GŞ¹×ş!Çl%¦rØ>ĞJÀá~¬4ùQ”'ï%ŠajeıI¸%)ÑÖ,j]B[[³E¦‘.²eQœwâöé½ìvN­ ((/^S%›¼Ş¡q,1CcVÃ¹&7Ùê>÷8èR!8`Yså¬«ÍÆY.ªz-w¢	r^T@:1lGL
-Ãfmø“F.¨Kœ56 wA«Õ˜ò0–‰¶Ë©_$Á-‡<~ÃKrŸ¨¢ş?²<ôS¥§i,Æ³ªíİ£Z›Ù{Zœ^,(ÄEë8äüã´Ú(}buòP«¨SÄŸ¼¹O·7ééNº^Ğm·ÚÇôÌF:Ñ›Ê‰·ÂX</Êt7£,4Àä0ºÁòKøüE.Cw¨1f*¹.<JmDhÊÁûÑXÿ9´·FYÃ,ßmÒwµÂ÷™‚Ècéå[Ù>Š¦’y¤”0‰6vcAkÓKû®¾
-3ÂoòØ¶lÓ§QÉ®PËü‘²2>ù^N^;m›Z•D~Óx»n.ûAgò|"s>HÖÖ‡I èàà€œİçç”åJ4D!*…2o½Rr¯ñÍBş{’~~„f#¸ÅŒf:Ë³ƒ-«"´ğÜ Î)ü0–@I‹
-'°(á„QÚ´WĞÆ+n%°çZ\±6\iô¥Ş0 ¿- ¿dX´:‚}Ó=U¹•ÑÌ“Iê‹j1©Øx>*ñ°¥°,ø)÷iéÍ¢›ádÈPÃƒI¼š«µòrZ;uW¨¶‡A»ï>«¡„£#šÆºR}ó"k\9Ê{L¼~š©V¬İü
-)»ÈVd8 g%Ş#©ÅNæ{@‰9~„µá&÷ugbÎŠGòBà­b@”fu-)Ìb”_kMLü/ V’"‡"î70çarn‚ãø7¶Düµ!Ü˜¿Ö‰ö—üLŸO'_Ÿkc‰PÑË‚[ßr!`şwÍ@Æİi¥N	Œç%Š=Ïƒ<t)_eO'æûÂ6™·ĞÓõÑ¨—Sw	FÕ‰€û9Ìú«ÊërØD1Ü‚.™W[Æ[¥¯öéÒGA1N§Ì<Yax`3J~¢à‰e#ŠWej„½·AßÎqÁÊY/åƒÈ:ª•U^^YsŠrc]xn¦ƒş!W@zFvcE³yŞ5Hùˆ×­ÂK&ú™ÂÄn­‹ ëZÊÔ£2ŠV4\Tx6Ê'½n’`ÍºXk‹ƒ\ÁÇD¤mç0|©ëÎ$£#ô|Ô<kQO²Ù¶¦ËfTSß0ı¾ßøÇ9öúdÇgúŠ^ÉMÃ+5|_t¹†¦@63«–tg¼ó,')V§¯’Nîd~âÓY®ó½Õ=‡.!€tfWËÑ†Ãìó8€»$‹Ó¥w3Ë‰ŞšD_1­+¾5 x…á-âvx¼¸„6­0ï(Ì¢bãéG]¬+8…* :ˆ…]AÙ"+–96Xñi63!‹†ó^¬Uû‘E{ÃÆÚh}õö{dJ‹%ºƒÁpIàZápªhßg„“=ÅH‡Kô/kâë«}¶O=IÃQáiôX‡§şPa%EÙÕTÉM¼‘m€•¿Ók÷½îiYü [/K™†*¼VÁ¦pÓìafI#{I¾÷šÁpd:ïÒ°ûÏ¿¯øj·‘MşÔŠƒÁ|ixáøkhïiS»éæWÙğgªĞ,¬°ÎÅOå½5–İ¬¼]ğÊ.B¢ªØåÿ&9X¡™5¥İÙ1yì€wÿù×?ÿlÒi³å±"äoSèésúÄ«c>·pò—¿ÎÀÚ>]i=ÙßÚ*¾˜Ù·,.eô÷Ó vÉnàR åRF¿ü…­Œ>ãóŒ8ƒ²¥Œşñ³²
-~}F°y(\Êúo?“W]i>½Ë•¿n[ºÔ,Ü°FãXnò$¾lìÍBİ\öl‹³1ÈmlÌÄä·ÿ Íï.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\c5\127f94d72f9266c69f60e0e91559303364ea66
----------------------------------------------
-xMPÏKÃ0öœ¿âÑİÄ&e;²M©-CE<¤ÍKM“’¦àŸošñ’ğò½ïWZm[ØÜ®¯VPÎÚ«|ò¼Ghg¥Hë AŞyÎFÇ¦*ÁXÛu‘s=*ƒğpLûèy­šçıSŒ#ÙUõ;Œ¼û’×ôk²(#d§	ÁŒ(ì´7rVÆçN‘æôòƒ$-
-ôq³I¶‹`í¬˜;¯‚C,pÉÙ+ó³M)“@‡&Ã}¬‡.¦d©+›'Ç¦3wÈÌBcg?èDŠ3í¬‘ÀĞw|™©`%aBouu<À¦(
-²+÷ğ‘ErvYŞ/§à8„VÊ»ìó+’{.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\c6\3026db29c3da1d31acf68274691c58f26fb722
----------------------------------------------
-x•RÁJ1õœ¯¬`[z’B‹ÒVğ¬àE(ÙÍ¬L“ÌB{ñÛÍÖÅm4§ìËÌ{óŞla\·ÓÙÅ–µWU""WJ+ƒk4ò€j³÷ÒFí¬ó9<!kÈ7•6Vî°m„¬C·-º(İ®ĞÕ¶Ç´§,µ¯Ê0 ĞhÜëHQğGºA–£Ë3PhN±Ä÷H$!P\óVƒ4&ÍA[(›Ğ(°$ ­‚Ø_€Æ(*` ÏÚ–«ë(Wø´vßµgrŒÜ²´X!©¬»4E4UêbÖq$Lš-YşQM3ø/Uşzb´S>ª¿ÍŞRÎ^»‹@š&¶&­U–Ë“À†7ÿ9¿sõ¤Ì3§IJ•R•Ş#Ç’f-%Î½/§ƒÇ.Œ3n˜-mcúÊşÂ
-÷Šw…^ò~]èZÇã3š¿<ÄHˆØÚY¼„Õñ=ÎÌNÕû^6?‚?ñ¦.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\c8\0308a46892ebd70d91f13942a617142cf6b453
----------------------------------------------
-x¥TÉnÛ0íY_1PzhSX±ƒÂ@:t‚^Š -z	‚’X™¨L
-$e7üï.®(yQŠÒCœ…óŞÌ›¢‘,–Ë›ğıîC¢˜–*¤t«É¦-SH×”‹€’WŠ,BrHóÌı®Ëİ˜ EÃH%4YIm]39Õ±¡Uwm+•Á\ÁŠfCkëlŸøŒ¡ø‘Vl#[=³õàı.Ù%É|†)ÁÜRÃ¶ôqT<fR{ó 	f"¼ÂÔffAf¼J&*àõ6ªà®+^Â×®À2ôè}ínñÕÖye',ŞñÉá_UGÊ<ÑŒÜ·ãåSißÊ¸¨Ø/x‹]6¿º~k«§ÊZğ†›Gò[
-Ì¡¢†f–’…«†e®¡÷QúLº¦-ñH	o‰¤¡(WXëû¯>ræ9›Ö“®ø;:Éºw;Eû)Â'âÕ'IŸcù?ø¢Ïƒ}_d‡ì}³…RÁÙ!VÖ™ë<šäs
-rQAÂÑÎ@Öö‹bn
-¤ÙKq,Ú¿º´ªŸ"Áél¦L4,1ØwZË’SÃ¥Ğÿ„œĞ>rÄ‚AşåĞ0Q›Õ+«!?Ì™í×X¼¿°`İñ£6ğˆÊ®#€¨=MÑeÈoİVüø>(nÑ«-¥ªe‘ÚZ;ÑÊ:@éWnUì‡ÊÄ0ìú!¼¿|xÆ"=’×úï×.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\ca\4735f6705d02a64b7929c3b7d727b40e4ccfd2
----------------------------------------------
-xmË
-Â0E]û!kÚú ¸SÜ¸Ò/Úfj›ÄL)ŠøïNÜŞ3÷1ecJ±X¯&¯©R-Ê
-{ci^Õµ’3ÏztTíq
-	$QUH•«m÷%{ì–Ä.ÅötˆgmQ'¡ã¸R”£—8Ó×s	u…ë|…6
-Åï5cŞ5ÀÖèg÷;¬Thy1êªÆQ,>¬Cò‚</!Í!ıœXårXª½„ÓR~uÛ'İ›,€¬Y•öû¿½şúõ$ÏôıÄdÅ.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\cd\6e740047f77dabb5b98f4ee16e69be68818a13
----------------------------------------------
-x¥T_kÛ0ßs>Åáîa+Ø4MËÊ ƒvì!”2—½”"dû’z(–'É)¡ä»ïNRZ%)İÃüßéî÷çN•ÒŒÏ/&ïà²ïU[K×êfZ6p%•ìj4#ƒV¦FÈä£ªÊ [Ê¶ËàiĞÉ%Âî3…¬Á•îm.)™rÚÎ¡é¤JÒ¦0—Ê"õUì%ÜºG òW°X¦uk±0zè-šÂÃÙÔ±h›{>2T:Ÿºí;ÂŠ~¨ˆïİñ=å(;Y)*dDo´ÃÚË±KYN.,µfæ ×Ìı€íf´ ,gğkç¬*î©(ë¥ m·ÑIÍòŠDÙ)¬¤)’ïßoÂ'¤òâºv…şÃ»Ë‹÷O{g6Ë²’ªm¼Ëb‰îA7LàÛu™±ªc½®F‚µA‚.*œkÃÒXgôš83°uÄómE˜!Û%Iä€_Ï8ŞVF¼ Ş)OHÓm-&pìñ¼ZPay©'ÖÚ4bş§é¼jÄÂ7Y_‡¦Íáù$fÜ4ŸczÁ%îƒï—³+˜µÖa‡>ü¸½½üğ	?±i©û¸ÇYUBÅ#DòÁ¹>,×în0Í@†<aÔkãùû²ôâ„…ç!ÖµN6BŒÅÛİà\ŠF(ŒyêíšˆÕgĞãdPé¤+=;›pC~Ò¦±WˆY'İ`E­¿9ELNÆ!¼¡¤8*‡*–ÿÍş·j‘EÊ àNyX«D¯éòX‡ßEÙ÷ÙU/©Ëoge>ÎOóÓ“ñ§<P<ÚWÇ5±àóŞ9^»W¼Û:Gcü(MÃšÆ×hš“f.Ü¡Ï>¦S%ÒŒ‚îà¸3Ì“Í	¿dÑ_&AïE.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\d4\ff7d0d2a7e4f84a95b2ac31925094d5769234e
----------------------------------------------
-x+)JMU045e040031QĞKÍ+ÓK­HÌ-ÈIe¸u|Úÿ/XHÈ,û{÷Î›ô=[­«L€@!)19;5/…isw%›Èº’ÆG+%ÔcSÏ:$DCMJÉ*)ÒMÎÏ-È/NÕ«ÌÍaĞ›!,`$}ùó7ŠGÎY½]Yµb^ZQ~^	È@)y¿ş†sg7…\?*g³ÿßnm÷Y ZÏA.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\da\c796ffb9e9e038181ca6fddddcec67bcb53b7a
----------------------------------------------
-xmË‚0E]ó>@«.*à#ÁPÛãŠ‹Ú[B«ş¾òXt1‹9¹sO&/Un{KwäØ!3,gº°%/âú¨™JZh“mBA©Î¬¼)m‚LÁ|æ{ÍB
-WD€OUi70%ŒßEÛ€ !Ç‡ 1­_ªæ®ç-k"‡xXßÁÖàûÓEú•t¹/Oø_åØëZISH>øG0 Dè3»,Å1˜°J¼ğ¬Y^.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\e6\9de29bb2d1d6434b8b29ae775ad8c2e48c5391
----------------------------------------------
-xKÊÉOR0`  	°ğ.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\f3\a8582082db4185efa396c081b4ac428c979b0d
----------------------------------------------
-x•’_KÃ0Å}î§¸Ÿ³‚ˆ0èƒ²—Á”¹êsHÚèirm’Êıîö™“u8óšÃù{îÚ
-¸»I¯lğ<®+c†W’À>(¥+j…^YÅSı'Ø7ğ[	Úò×Ü²&¾á:H_üÓ1-hÅ•¡Ñ7i“äÀCd¡Ö“¨{D­
->_7«Ss²õİ|6ãˆôzßğš–¶Gñ[rŠykõYØÃ^º8ê8BM`æ·išşbU;÷¡™4%Zeüäl»üy›EÙdw¥`Ê8ß·K[õÜIã”WM_w¾òxb´Î¿×òÏ(ëQ÷ÿ<?€ËCÅ5`İn™ÂÉvâ2âè0Êa¹>=‚şÂ¢~ÛÓƒ}Ò~ò{.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\fc\3fa770888ea6b012316ae90a9fa17faffc4aaf
----------------------------------------------
-x+)JMU°0e040031QH,(ˆ/-N-JI,IÔ+Î`‹Ötuûtäò?Ó£Ê¯œ<›şy:TiR&ŠÊuÓ»='…7V´uXÖ¨Pİ­ûbÿ Ya%¢.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\pack\pack-b76f4c76ece314073fcee2d78cafba222280e318.idx
----------------------------------------------
-ÿtOc                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            ©2bA{¥›Ş¼üošı¿Hö©+µ¿÷„ç‘¬kB¸bÒ(Ê}A·„3kôØ…£VÕÂgªAæ½ÿw{`Òü{—k¥æm       E·oLvìã?Îâ×Œ¯º""€ã
-Esæ_àe<¸ò§.@v.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\pack\pack-b76f4c76ece314073fcee2d78cafba222280e318.pack
----------------------------------------------
-PACK      —>xœu“ÉÎ£F „ï<Eß­Ä€Y¥I4€³›Åæ7·ÆlL³ûéçOæšÔ±¤:”ª¾	ç9€â‰æf(>%OÓ,OŸÅ“+DXdiÁE:%à<U=|aØ°‚ÊÀ¾ĞN×?ËDíŸÏşõ7 xF$yp Y’$¾İš¦M—9?ºçïvÿY¢©šÓÿ‰•ïrD%øãÉªn¸àª_Ahè®İõ_Ÿ XGí)K’¬H’/ûfï;R…‚>?Ïì­j%I:™¾/YÜÂËš>c‰>J…pJÔOßĞ^[šÇ’uŠ{¤íKirèäÖúĞ¸ùıp‡24ˆirí‘vË%ïW9CØ²Ó„ 7Ÿ?‡;¼P¦µ¤÷9™2)Ns ãî%-=s»ôæ¬ÙÎ~ÍRFƒWIÆì]İ‘ñE ı<êU0{ËµN)Í%9œ—OËVt“Æ_G3ßñÃì©Uî¶×Á5ìù¤ãåA€ëÖß$üÌÉk€İî18T=j‹sìPÊK‡®ŒV¾^ÖØó’XpŞã}N=I–¤¤W3Úô«yÜíâm5÷ÈåÅÉÖY¿K9¬œ÷ıBª©`)»ßCK¬Â‰öÓ‹B€bòıÆ¥Vİo•ÇÑÉP!¤õŒeuØ¾&éë…Ï·yË$!:Ï³^ÚÒ"›Ú™! ×êR-+;LÑ‰‰wQ“³ªi¡1Çî›¤IÅB_™¯×ı­®·]˜DÆÖ*²¥Ğz;õ.!Ö7îŸŸ¼ãê¦<ä0úÛÀDó{,­Uã½¥NÛ"«¥Ëï­¾ÿ0ºÎ¤;BÜr/óì_»Äæ*
-ív=¾Şá€Ë;†Càåv£8JgŠvõÙÈ•Á}“Eø<n-³kÿàúHà“3wÌóÁL¦u\»D_O¬hs#°ı¸{÷X¾jÍ'K±'ù´_0†åĞtï ßÍ¹ïÛ[J€¿¾Æ@üfBuÏÿMathB°¿Áû‚ñ=Î¥xœ340031QrutñuÕËMaØŞbœıåF«äâ°«‡ÒW9>Ûû¿¼ è³¶´xœSVÈNÌ-JÌÓM,/Ö-(ÊÏJM. GáZ·oLvìã?Îâ×Œ¯º""€ã.
-.
-C:\Users\Kamran\kamran-aws-project\.git\objects\pack\pack-b76f4c76ece314073fcee2d78cafba222280e318.rev
----------------------------------------------
-RIDX                ·oLvìã?Îâ×Œ¯º""€ãøi;µu>KÄíñÚÕDìĞ²XJÜ.
-.
-C:\Users\Kamran\kamran-aws-project\.git\refs\heads\main
----------------------------------------------
-20cde55f80d40c0ea6f80be41101c951fb7be1db
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\refs\remotes\origin\HEAD
----------------------------------------------
-ref: refs/remotes/origin/main
-.
-.
-C:\Users\Kamran\kamran-aws-project\.git\refs\remotes\origin\main
----------------------------------------------
-20cde55f80d40c0ea6f80be41101c951fb7be1db
-.
-.
-C:\Users\Kamran\kamran-aws-project\docker\.env.example
----------------------------------------------
-# Database Configuration
-PG_HOST=localhost
-PG_PORT=5432
-PG_DATABASE=devopsdb
-PG_USER=admin
-PG_PASSWORD=Password123!
-
-MYSQL_HOST=localhost
-MYSQL_PORT=3306
-MYSQL_DATABASE=devopsdb
-MYSQL_USER=admin
-MYSQL_PASSWORD=Password123!
-
-# Frontend Configuration
-REACT_APP_API_URL=/api.
-.
-C:\Users\Kamran\kamran-aws-project\docker\docker-compose.yml
----------------------------------------------
-services:
-  frontend:
-    build: 
-      context: ./frontend
-      dockerfile: Dockerfile
-    ports:
-      - "3000:3000"
-    environment:
-      - REACT_APP_API_URL=/api
-    depends_on:
-      - backend
-
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    ports:
-      - "5000:5000"
-    environment:
-      - NODE_ENV=production
-      - PORT=5000
-      - PG_HOST=${PG_HOST:-localhost}
-      - PG_PORT=${PG_PORT:-5432}
-      - PG_DATABASE=${PG_DATABASE:-devopsdb}
-      - PG_USER=${PG_USER:-admin}
-      - PG_PASSWORD=${PG_PASSWORD:-Password123!}
-      - MYSQL_HOST=${MYSQL_HOST:-localhost}
-      - MYSQL_PORT=${MYSQL_PORT:-3306}
-      - MYSQL_DATABASE=${MYSQL_DATABASE:-devopsdb}
-      - MYSQL_USER=${MYSQL_USER:-admin}
-      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-Password123!}.
-.
-C:\Users\Kamran\kamran-aws-project\docker\backend\Dockerfile
----------------------------------------------
-# Multi-stage build for Node.js backend
-FROM node:20-alpine AS builder
-
-WORKDIR /app
-COPY package*.json ./
-
-# Use npm install instead of npm ci for development
-RUN npm install --only=production
-
-# Production stage
-FROM node:20-alpine
-WORKDIR /app
-
-# Copy node_modules from builder stage
-COPY --from=builder /app/node_modules ./node_modules
-COPY . .
-
-EXPOSE 5000
-
-USER node
-
-CMD ["npm", "start"].
-.
-C:\Users\Kamran\kamran-aws-project\docker\backend\package.json
----------------------------------------------
-{
-  "name": "devops-backend",
-  "version": "1.0.0",
-  "description": "DevOps Backend API",
-  "main": "server.js",
-  "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
-  },
-  "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
-    "pg": "^8.11.0",
-    "mysql2": "^3.6.0"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.1"
-  }
-}.
-.
-C:\Users\Kamran\kamran-aws-project\docker\backend\server.js
----------------------------------------------
-// docker/backend/server.js
-const express = require('express');
-const cors = require('cors');
-const { Pool } = require('pg');
-const mysql = require('mysql2/promise');
-
-const app = express();
-const PORT = process.env.PORT || 5000;
-
-// Middleware
-app.use(cors());
-app.use(express.json());
-
-// Database connections
-const pgPool = new Pool({
-  host: process.env.PG_HOST || 'localhost',
-  port: process.env.PG_PORT || 5432,
-  database: process.env.PG_DATABASE || 'devopsdb',
-  user: process.env.PG_USER || 'admin',
-  password: process.env.PG_PASSWORD || 'Password123!',
-});
-
-const mysqlConfig = {
-  host: process.env.MYSQL_HOST || 'localhost',
-  port: process.env.MYSQL_PORT || 3306,
-  database: process.env.MYSQL_DATABASE || 'devopsdb',
-  user: process.env.MYSQL_USER || 'admin',
-  password: process.env.MYSQL_PASSWORD || 'Password123!',
-};
-
-// Initialize database tables
-async function initializeDatabases() {
-  try {
-    // PostgreSQL table
-    await pgPool.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(100) NOT NULL,
-        email VARCHAR(100) UNIQUE NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // MySQL table
-    const mysqlConnection = await mysql.createConnection(mysqlConfig);
-    await mysqlConnection.execute(`
-      CREATE TABLE IF NOT EXISTS users (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(100) NOT NULL,
-        email VARCHAR(100) UNIQUE NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    await mysqlConnection.end();
-
-    console.log('Database tables initialized successfully');
-  } catch (error) {
-    console.error('Database initialization error:', error);
-  }
-}
-
-// Routes
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'healthy', 
-    timestamp: new Date().toISOString(),
-    version: '1.0.0',
-    environment: process.env.NODE_ENV || 'development'
-  });
-});
-
-// Get all users (from PostgreSQL)
-app.get('/api/users', async (req, res) => {
-  try {
-    const result = await pgPool.query('SELECT * FROM users ORDER BY created_at DESC');
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Error fetching users:', error);
-    res.status(500).json({ error: 'Failed to fetch users' });
-  }
-});
-
-// Add new user (to PostgreSQL)
-app.post('/api/users', async (req, res) => {
-  const { name, email } = req.body;
-  
-  if (!name || !email) {
-    return res.status(400).json({ error: 'Name and email are required' });
-  }
-
-  try {
-    const result = await pgPool.query(
-      'INSERT INTO users (name, email) VALUES ($1, $2) RETURNING *',
-      [name, email]
-    );
-    
-    // Also insert into MySQL for BI tool demonstration
-    try {
-      const mysqlConnection = await mysql.createConnection(mysqlConfig);
-      await mysqlConnection.execute(
-        'INSERT INTO users (name, email) VALUES (?, ?)',
-        [name, email]
-      );
-      await mysqlConnection.end();
-    } catch (mysqlError) {
-      console.warn('MySQL insert failed (this is ok for demo):', mysqlError.message);
-    }
-
-    res.status(201).json(result.rows[0]);
-  } catch (error) {
-    console.error('Error adding user:', error);
-    if (error.code === '23505') { // Duplicate email
-      res.status(409).json({ error: 'Email already exists' });
-    } else {
-      res.status(500).json({ error: 'Failed to add user' });
-    }
-  }
-});
-
-// Get users from MySQL (for BI tool)
-app.get('/api/mysql/users', async (req, res) => {
-  try {
-    const connection = await mysql.createConnection(mysqlConfig);
-    const [rows] = await connection.execute('SELECT * FROM users ORDER BY created_at DESC');
-    await connection.end();
-    res.json(rows);
-  } catch (error) {
-    console.error('Error fetching MySQL users:', error);
-    res.status(500).json({ error: 'Failed to fetch users from MySQL' });
-  }
-});
-
-// Database stats endpoint
-app.get('/api/stats', async (req, res) => {
-  try {
-    const pgResult = await pgPool.query('SELECT COUNT(*) as count FROM users');
-    const pgCount = parseInt(pgResult.rows[0].count);
-
-    let mysqlCount = 0;
-    try {
-      const mysqlConnection = await mysql.createConnection(mysqlConfig);
-      const [mysqlRows] = await mysqlConnection.execute('SELECT COUNT(*) as count FROM users');
-      await mysqlConnection.end();
-      mysqlCount = mysqlRows[0].count;
-    } catch (mysqlError) {
-      console.warn('MySQL stats failed (this is ok for demo):', mysqlError.message);
-    }
-
-    res.json({
-      postgresql_users: pgCount,
-      mysql_users: mysqlCount,
-      total_users: pgCount,
-      last_updated: new Date().toISOString(),
-      server_uptime: process.uptime()
-    });
-  } catch (error) {
-    console.error('Error fetching stats:', error);
-    res.status(500).json({ error: 'Failed to fetch stats' });
-  }
-});
-
-// Test database connections
-app.get('/api/test-connections', async (req, res) => {
-  const results = {
-    postgresql: false,
-    mysql: false,
-    timestamp: new Date().toISOString()
-  };
-
-  // Test PostgreSQL
-  try {
-    await pgPool.query('SELECT 1');
-    results.postgresql = true;
-  } catch (error) {
-    console.error('PostgreSQL connection test failed:', error.message);
-  }
-
-  // Test MySQL
-  try {
-    const mysqlConnection = await mysql.createConnection(mysqlConfig);
-    await mysqlConnection.execute('SELECT 1');
-    await mysqlConnection.end();
-    results.mysql = true;
-  } catch (error) {
-    console.error('MySQL connection test failed:', error.message);
-  }
-
-  res.json(results);
-});
-
-// Root endpoint
-app.get('/', (req, res) => {
-  res.json({
-    message: 'DevOps Demo API Server',
-    version: '1.0.0',
-    endpoints: [
-      'GET /health - Health check',
-      'GET /api/users - Get all users',
-      'POST /api/users - Add new user',
-      'GET /api/mysql/users - Get users from MySQL',
-      'GET /api/stats - Get database statistics',
-      'GET /api/test-connections - Test database connections'
-    ],
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Error handling middleware
-app.use((error, req, res, next) => {
-  console.error('Unhandled error:', error);
-  res.status(500).json({ 
-    error: 'Internal server error',
-    timestamp: new Date().toISOString()
-  });
-});
-
-// 404 handler
-app.use('*', (req, res) => {
-  res.status(404).json({ 
-    error: 'Route not found',
-    path: req.originalUrl,
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Graceful shutdown
-process.on('SIGTERM', async () => {
-  console.log('SIGTERM received, shutting down gracefully');
-  await pgPool.end();
-  process.exit(0);
-});
-
-process.on('SIGINT', async () => {
-  console.log('SIGINT received, shutting down gracefully');
-  await pgPool.end();
-  process.exit(0);
-});
-
-// Start server
-async function startServer() {
-  try {
-    await initializeDatabases();
-    
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log(`ğŸš€ Server running on port ${PORT}`);
-      console.log(`ğŸ“Š Health check: http://localhost:${PORT}/health`);
-      console.log(`ğŸ‘¥ Users API: http://localhost:${PORT}/api/users`);
-      console.log(`ğŸ“ˆ Stats API: http://localhost:${PORT}/api/stats`);
-      console.log(`ğŸ” Test connections: http://localhost:${PORT}/api/test-connections`);
-      console.log(`ğŸŒ Environment: ${process.env.NODE_ENV || 'development'}`);
-    });
-  } catch (error) {
-    console.error('Failed to start server:', error);
-    process.exit(1);
-  }
-}
-
-startServer();.
-.
-C:\Users\Kamran\kamran-aws-project\docker\frontend\Dockerfile
----------------------------------------------
-# Multi-stage build for React frontend
-FROM node:20-alpine AS builder
-
-WORKDIR /app
-COPY package*.json ./
-
-# Use npm install instead of npm ci
-RUN npm install
-
-COPY . .
-RUN npm run build
-
-# Production stage
-FROM nginx:alpine
-COPY --from=builder /app/build /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-
-EXPOSE 3000
-CMD ["nginx", "-g", "daemon off;"].
-.
-C:\Users\Kamran\kamran-aws-project\docker\frontend\nginx.conf
----------------------------------------------
-server {
-    listen 3000;
-    location / {
-        root /usr/share/nginx/html;
-        index index.html index.htm;
-        try_files $uri $uri/ /index.html;
-    }
-    
-    location /api/ {
-        proxy_pass http://backend:5000/api/;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}.
-.
-C:\Users\Kamran\kamran-aws-project\docker\frontend\package.json
----------------------------------------------
-{
-  "name": "devops-frontend",
-  "version": "1.0.0",
-  "private": true,
-  "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-scripts": "5.0.1",
-    "axios": "^1.4.0"
-  },
-  "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject"
-  },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
-  },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
-  }
-}.
-.
-C:\Users\Kamran\kamran-aws-project\docker\frontend\public\index.html
----------------------------------------------
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
-    <meta name="description" content="DevOps Demo Application" />
-    <title>DevOps Demo App</title>
-  </head>
-  <body>
-    <noscript>You need to enable JavaScript to run this app.</noscript>
-    <div id="root"></div>
-  </body>
-</html>.
-.
-C:\Users\Kamran\kamran-aws-project\docker\frontend\src\App.css
----------------------------------------------
-.App {
-  text-align: center;
-  min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-}
-
-.App-header {
-  padding: 2rem 0;
-  background: rgba(0,0,0,0.1);
-}
-
-.App-header h1 {
-  margin: 0;
-  font-size: 2.5rem;
-  font-weight: 700;
-}
-
-.App-header p {
-  margin: 0.5rem 0 0;
-  font-size: 1.1rem;
-  opacity: 0.9;
-}
-
-.App-main {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 2rem;
-}
-
-.user-form {
-  background: rgba(255,255,255,0.1);
-  padding: 2rem;
-  border-radius: 10px;
-  margin-bottom: 2rem;
-  backdrop-filter: blur(10px);
-}
-
-.user-form h2 {
-  margin-top: 0;
-}
-
-.user-form form {
-  display: flex;
-  gap: 1rem;
-  justify-content: center;
-  flex-wrap: wrap;
-}
-
-.user-form input {
-  padding: 0.75rem;
-  border: none;
-  border-radius: 5px;
-  font-size: 1rem;
-  min-width: 200px;
-}
-
-.user-form button {
-  padding: 0.75rem 1.5rem;
-  background: #4CAF50;
-  color: white;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 1rem;
-  transition: background-color 0.3s;
-}
-
-.user-form button:hover:not(:disabled) {
-  background: #45a049;
-}
-
-.user-form button:disabled {
-  background: #cccccc;
-  cursor: not-allowed;
-}
-
-.user-list {
-  margin-bottom: 2rem;
-}
-
-.users-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: 1rem;
-  margin-top: 1rem;
-}
-
-.user-card {
-  background: rgba(255,255,255,0.1);
-  padding: 1.5rem;
-  border-radius: 10px;
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255,255,255,0.1);
-}
-
-.user-card h3 {
-  margin: 0 0 0.5rem;
-  color: #fff;
-}
-
-.user-card p {
-  margin: 0 0 0.5rem;
-  opacity: 0.9;
-}
-
-.user-card small {
-  opacity: 0.7;
-  font-size: 0.8rem;
-}
-
-.stats {
-  background: rgba(255,255,255,0.1);
-  padding: 2rem;
-  border-radius: 10px;
-  backdrop-filter: blur(10px);
-}
-
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1rem;
-  margin-top: 1rem;
-}
-
-.stat-card {
-  background: rgba(255,255,255,0.1);
-  padding: 1rem;
-  border-radius: 8px;
-  border: 1px solid rgba(255,255,255,0.1);
-}
-
-.stat-card h3 {
-  margin: 0 0 0.5rem;
-  font-size: 1rem;
-}
-
-.stat-card p {
-  margin: 0;
-  font-weight: bold;
-  color: #4CAF50;
-}
-
-@media (max-width: 768px) {
-  .App-main {
-    padding: 1rem;
-  }
-  
-  .user-form form {
-    flex-direction: column;
-    align-items: center;
-  }
-  
-  .users-grid {
-    grid-template-columns: 1fr;
-  }
-}.
-.
-C:\Users\Kamran\kamran-aws-project\docker\frontend\src\App.js
----------------------------------------------
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import './App.css';
-
-function App() {
-  const [users, setUsers] = useState([]);
-  const [newUser, setNewUser] = useState({ name: '', email: '' });
-  const [loading, setLoading] = useState(false);
-
-  const API_URL = process.env.REACT_APP_API_URL || '';
-
-  useEffect(() => {
-    fetchUsers();
-  }, []);
-
-  const fetchUsers = async () => {
-    try {
-      setLoading(true);
-      const response = await axios.get(`${API_URL}/api/users`);
-      setUsers(response.data);
-    } catch (error) {
-      console.error('Error fetching users:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const addUser = async (e) => {
-    e.preventDefault();
-    try {
-      setLoading(true);
-      await axios.post(`${API_URL}/api/users`, newUser);
-      setNewUser({ name: '', email: '' });
-      fetchUsers();
-    } catch (error) {
-      console.error('Error adding user:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="App">
-      <header className="App-header">
-        <h1>DevOps Demo Application</h1>
-        <p>Full-Stack Application with Auto Scaling, Load Balancer & RDS</p>
-      </header>
-
-      <main className="App-main">
-        <section className="user-form">
-          <h2>Add New User</h2>
-          <form onSubmit={addUser}>
-            <input
-              type="text"
-              placeholder="Name"
-              value={newUser.name}
-              onChange={(e) => setNewUser({...newUser, name: e.target.value})}
-              required
-            />
-            <input
-              type="email"
-              placeholder="Email"
-              value={newUser.email}
-              onChange={(e) => setNewUser({...newUser, email: e.target.value})}
-              required
-            />
-            <button type="submit" disabled={loading}>
-              {loading ? 'Adding...' : 'Add User'}
-            </button>
-          </form>
-        </section>
-
-        <section className="user-list">
-          <h2>Users ({users.length})</h2>
-          {loading ? (
-            <p>Loading...</p>
-          ) : (
-            <div className="users-grid">
-              {users.map((user) => (
-                <div key={user.id} className="user-card">
-                  <h3>{user.name}</h3>
-                  <p>{user.email}</p>
-                  <small>Added: {new Date(user.created_at).toLocaleDateString()}</small>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="stats">
-          <h2>Infrastructure Status</h2>
-          <div className="stats-grid">
-            <div className="stat-card">
-              <h3>Auto Scaling</h3>
-              <p>âœ… Active</p>
-            </div>
-            <div className="stat-card">
-              <h3>Load Balancer</h3>
-              <p>âœ… Healthy</p>
-            </div>
-            <div className="stat-card">
-              <h3>RDS Database</h3>
-              <p>âœ… Connected</p>
-            </div>
-            <div className="stat-card">
-              <h3>SSL/HTTPS</h3>
-              <p>âœ… Secured</p>
-            </div>
-          </div>
-        </section>
-      </main>
-    </div>
-  );
-}
-
-export default App;.
-.
-C:\Users\Kamran\kamran-aws-project\docker\frontend\src\index.css
----------------------------------------------
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
-}
-
-* {
-  box-sizing: border-box;
-}.
-.
-C:\Users\Kamran\kamran-aws-project\docker\frontend\src\index.js
----------------------------------------------
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import './index.css';
-import App from './App';
-
-const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);.
-.
-C:\Users\Kamran\kamran-aws-project\scripts\cleanup.sh
----------------------------------------------
-.
-.
-C:\Users\Kamran\kamran-aws-project\scripts\deploy.sh
----------------------------------------------
-.
-.
-C:\Users\Kamran\kamran-aws-project\scripts\test-local.sh
----------------------------------------------
-#!/bin/bash
-
-# =======================================================
-# Local Docker Application Testing Script
-# =======================================================
-
-set -e  # Exit on any error
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-# Function to print colored output
-print_status() {
-    echo -e "${BLUE}[INFO]${NC} $1"
-}
-
-print_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
-}
-
-print_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
-}
-
-print_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
-
-# Function to check prerequisites
-check_prerequisites() {
-    print_status "Checking prerequisites..."
-    
-    # Check if Docker is installed
-    if ! command -v docker &> /dev/null; then
-        print_error "Docker is not installed. Please install Docker first."
-        exit 1
-    fi
-    
-    # Check if Docker Compose is installed
-    if ! command -v docker-compose &> /dev/null; then
-        print_error "Docker Compose is not installed. Please install Docker Compose first."
-        exit 1
-    fi
-    
-    # Check if Docker is running
-    if ! docker info &> /dev/null; then
-        print_error "Docker is not running. Please start Docker first."
-        exit 1
-    fi
-    
-    # Check if we're in the right directory
-    if [ ! -d "docker" ]; then
-        print_error "Please run this script from the project root directory."
-        exit 1
-    fi
-    
-    print_success "Prerequisites check passed!"
-}
-
-# Function to build and start containers
-start_containers() {
-    print_status "Building and starting Docker containers..."
-    
-    cd docker
-    
-    # Stop any existing containers
-    print_status "Stopping any existing containers..."
-    docker-compose down 2>/dev/null || true
-    
-    # Build and start containers
-    print_status "Building containers..."
-    docker-compose build
-    
-    print_status "Starting containers..."
-    docker-compose up -d
-    
-    cd ..
-    print_success "Containers started successfully!"
-}
-
-# Function to wait for services
-wait_for_services() {
-    print_status "Waiting for services to start..."
-    
-    # Wait for backend to be ready
-    print_status "Waiting for backend service..."
-    for i in {1..30}; do
-        if curl -s http://localhost:5000/health > /dev/null 2>&1; then
-            print_success "Backend service is ready!"
-            break
-        fi
-        if [ $i -eq 30 ]; then
-            print_error "Backend service failed to start within 30 seconds"
-            return 1
-        fi
-        sleep 1
-        echo -n "."
-    done
-    
-    # Wait for frontend to be ready
-    print_status "Waiting for frontend service..."
-    for i in {1..30}; do
-        if curl -s http://localhost:3000 > /dev/null 2>&1; then
-            print_success "Frontend service is ready!"
-            break
-        fi
-        if [ $i -eq 30 ]; then
-            print_error "Frontend service failed to start within 30 seconds"
-            return 1
-        fi
-        sleep 1
-        echo -n "."
-    done
-}
-
-# Function to test application endpoints
-test_endpoints() {
-    print_status "Testing application endpoints..."
-    
-    # Test backend health
-    print_status "Testing backend health endpoint..."
-    HEALTH_RESPONSE=$(curl -s http://localhost:5000/health)
-    if echo "$HEALTH_RESPONSE" | grep -q "healthy"; then
-        print_success "âœ… Backend health check passed"
-    else
-        print_error "âŒ Backend health check failed"
-        echo "Response: $HEALTH_RESPONSE"
-    fi
-    
-    # Test frontend
-    print_status "Testing frontend..."
-    if curl -s http://localhost:3000 | grep -q "DevOps Demo"; then
-        print_success "âœ… Frontend is serving content"
-    else
-        print_warning "âš ï¸  Frontend might not be fully loaded"
-    fi
-    
-    # Test API endpoints
-    print_status "Testing API endpoints..."
-    
-    # Test users endpoint
-    USERS_RESPONSE=$(curl -s http://localhost:5000/api/users)
-    if echo "$USERS_RESPONSE" | grep -q "\[\]" || echo "$USERS_RESPONSE" | grep -q "id"; then
-        print_success "âœ… Users API endpoint working"
-    else
-        print_warning "âš ï¸  Users API might have issues"
-        echo "Response: $USERS_RESPONSE"
-    fi
-    
-    # Test stats endpoint
-    STATS_RESPONSE=$(curl -s http://localhost:5000/api/stats)
-    if echo "$STATS_RESPONSE" | grep -q "total_users"; then
-        print_success "âœ… Stats API endpoint working"
-    else
-        print_warning "âš ï¸  Stats API might have issues"
-        echo "Response: $STATS_RESPONSE"
-    fi
-}
-
-# Function to show container status
-show_container_status() {
-    print_status "Container status:"
-    
-    cd docker
-    docker-compose ps
-    cd ..
-    
-    print_status "Container logs (last 10 lines):"
-    echo "=== Backend Logs ==="
-    cd docker
-    docker-compose logs --tail=10 backend
-    echo ""
-    echo "=== Frontend Logs ==="
-    docker-compose logs --tail=10 frontend
-    cd ..
-}
-
-# Function to show access information
-show_access_info() {
-    echo ""
-    print_success "ğŸ‰ Local testing completed!"
-    echo ""
-    print_status "Access your application:"
-    echo "ğŸŒ Frontend: http://localhost:3000"
-    echo "âš™ï¸  Backend API: http://localhost:5000"
-    echo "â¤ï¸  Health Check: http://localhost:5000/health"
-    echo "ğŸ‘¥ Users API: http://localhost:5000/api/users"
-    echo "ğŸ“Š Stats API: http://localhost:5000/api/stats"
-    echo ""
-    print_status "To stop the application:"
-    echo "cd docker && docker-compose down"
-    echo ""
-    print_warning "Note: Database connections will fail locally unless you have"
-    print_warning "PostgreSQL and MySQL running with the expected credentials."
-}
-
-# Function to cleanup on exit
-cleanup() {
-    if [ "$1" = "stop" ]; then
-        print_status "Stopping containers..."
-        cd docker 2>/dev/null && docker-compose down 2>/dev/null || true
-        print_success "Containers stopped."
-    fi
-}
-
-# Main testing function
-main() {
-    echo ""
-    print_status "ğŸ§ª Local Docker Application Testing"
-    print_status "===================================="
-    echo ""
-    
-    # Handle command line arguments
-    case "${1:-}" in
-        "stop")
-            cleanup stop
-            exit 0
-            ;;
-        "logs")
-            cd docker && docker-compose logs
-            exit 0
-            ;;
-        "status")
-            cd docker && docker-compose ps
-            exit 0
-            ;;
-    esac
-    
-    # Record start time
-    START_TIME=$(date +%s)
-    
-    # Run testing steps
-    check_prerequisites
-    start_containers
-    wait_for_services
-    test_endpoints
-    show_container_status
-    show_access_info
-    
-    # Calculate testing time
-    END_TIME=$(date +%s)
-    DURATION=$((END_TIME - START_TIME))
-    
-    echo ""
-    print_success "Total testing time: ${DURATION} seconds"
-    echo ""
-    print_status "Usage:"
-    echo "./scripts/test-local.sh        # Run full test"
-    echo "./scripts/test-local.sh stop   # Stop containers"
-    echo "./scripts/test-local.sh logs   # Show logs"
-    echo "./scripts/test-local.sh status # Show status"
-}
-
-# Handle Ctrl+C gracefully
-trap 'echo ""; print_warning "Testing interrupted by user."; cleanup stop; exit 1' INT
-
-# Run main function
-main "$@".
-.
-C:\Users\Kamran\kamran-aws-project\user_data\app_userdata.sh
----------------------------------------------
-#!/bin/bash
-
-# Update system and install required packages
-sudo yum update -y
-sudo yum install -y nginx docker git
-
-# Install Docker Compose
-sudo curl -L "https://github.com/docker/compose/releases/download/v2.21.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
-
-# Install Node.js 20
-curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo bash -
-sudo yum install -y nodejs
-
-# Enable and start services
-sudo systemctl enable nginx docker
-sudo systemctl start nginx docker
-
-# Add ec2-user to docker group
-sudo usermod -aG docker ec2-user
-
-# Wait for services to start
-sleep 10
-
-# Clone the repository
-cd /home/ec2-user
-sudo git clone ${github_repo} app || {
-    echo "Git clone failed, creating placeholder app"
-    sudo mkdir -p app/docker
-    sudo chown -R ec2-user:ec2-user app
-    exit 0
-}
-sudo chown -R ec2-user:ec2-user app
-
-# Navigate to docker directory
-cd /home/ec2-user/app/docker
-
-# Create environment file for Docker Compose
-cat <<EOF > .env
-PG_HOST=${pg_host}
-PG_PORT=5432
-PG_DATABASE=${pg_database}
-PG_USER=${pg_user}
-PG_PASSWORD=${pg_password}
-MYSQL_HOST=${mysql_host}
-MYSQL_PORT=3306
-MYSQL_DATABASE=${mysql_database}
-MYSQL_USER=${mysql_user}
-MYSQL_PASSWORD=${mysql_password}
-REACT_APP_API_URL=/api
-EOF
-
-# Wait for Docker to be ready
-sleep 30
-
-# Build and run the application
-sudo -u ec2-user docker-compose up -d
-
-# Wait for containers to start
-sleep 60
-
-# Configure Nginx as reverse proxy
-cat <<EOF | sudo tee /etc/nginx/conf.d/app.conf
-server {
-    listen 80 default_server;
-    server_name _;
-
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-    }
-
-    location /api/ {
-        proxy_pass http://127.0.0.1:5000/api/;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-    }
-
-    location /health {
-        proxy_pass http://127.0.0.1:5000/health;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-    }
-}
-EOF
-
-# Remove default nginx config
-sudo rm -f /etc/nginx/conf.d/default.conf
-
-# Restart Nginx
-sudo systemctl restart nginx
-
-# Log status for debugging
-echo "=== Docker Status ===" >> /var/log/user-data.log
-sudo docker ps >> /var/log/user-data.log
-echo "=== Docker Logs ===" >> /var/log/user-data.log
-sudo docker-compose logs >> /var/log/user-data.log.
-.
-C:\Users\Kamran\kamran-aws-project\user_data\bi_userdata.sh
----------------------------------------------
-#!/bin/bash
-
-# Update system and install required packages
-sudo yum update -y
-sudo yum install -y docker git
-
-# Install Node.js 20
-curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo bash -
-sudo yum install -y nodejs
-
-# Enable and start Docker
-sudo systemctl enable docker
-sudo systemctl start docker
-
-# Add ec2-user to docker group
-sudo usermod -aG docker ec2-user
-
-# Create directory for Metabase
-sudo mkdir -p /opt/metabase
-sudo chown ec2-user:ec2-user /opt/metabase
-
-# Wait for Docker to be ready
-sleep 30
-
-# Run Metabase container
-sudo docker run -d \
-  --name metabase \
-  -p 5000:3000 \
-  -e MB_DB_TYPE=postgres \
-  -e MB_DB_DBNAME=devopsdb \
-  -e MB_DB_PORT=5432 \
-  -e MB_DB_USER=${db_username} \
-  -e MB_DB_PASS=${db_password} \
-  -e MB_DB_HOST=${db_host} \
-  metabase/metabase
-
-# Install PostgreSQL client for debugging
-sudo yum install -y postgresql.
-.
