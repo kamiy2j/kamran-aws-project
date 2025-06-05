@@ -1,6 +1,6 @@
 # RDS MySQL Instance
 resource "aws_db_instance" "mysql" {
-  identifier     = "devops-mysql"
+  identifier     = "kamran-mysql"
   engine         = "mysql"
   engine_version = "8.0"
   instance_class = "db.t3.micro"
@@ -10,7 +10,7 @@ resource "aws_db_instance" "mysql" {
   storage_type          = "gp2"
   storage_encrypted     = true
 
-  db_name  = "devopsdb"
+  db_name  = "kamrandb"
   username = var.db_username
   password = var.db_password
 
@@ -25,13 +25,13 @@ resource "aws_db_instance" "mysql" {
   deletion_protection = false
 
   tags = {
-    Name = "devops-mysql"
+    Name = "kamran-mysql"
   }
 }
 
 # RDS PostgreSQL Instance
 resource "aws_db_instance" "postgresql" {
-  identifier     = "devops-postgresql"
+  identifier     = "kamran-postgresql"
   engine         = "postgres"
   engine_version = "14"
   instance_class = "db.t3.micro"
@@ -41,7 +41,7 @@ resource "aws_db_instance" "postgresql" {
   storage_type          = "gp2"
   storage_encrypted     = true
 
-  db_name  = "devopsdb"
+  db_name  = "kamrandb"
   username = var.db_username
   password = var.db_password
 
@@ -56,6 +56,6 @@ resource "aws_db_instance" "postgresql" {
   deletion_protection = false
 
   tags = {
-    Name = "devops-postgresql"
+    Name = "kamran-postgresql"
   }
 }

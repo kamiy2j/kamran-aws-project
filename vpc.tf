@@ -5,7 +5,7 @@ resource "aws_vpc" "main" {
   enable_dns_support   = true
 
   tags = {
-    Name = "devops-vpc"
+    Name = "kamran-vpc"
   }
 }
 
@@ -14,7 +14,7 @@ resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
 
   tags = {
-    Name = "devops-igw"
+    Name = "kamran-igw"
   }
 }
 
@@ -27,7 +27,7 @@ resource "aws_subnet" "public" {
   map_public_ip_on_launch = true
 
   tags = {
-    Name = "devops-public-subnet-${count.index + 1}"
+    Name = kamran-public-subnet-${count.index + 1}"
   }
 }
 
@@ -39,7 +39,7 @@ resource "aws_subnet" "private" {
   availability_zone = data.aws_availability_zones.available.names[count.index]
 
   tags = {
-    Name = "devops-private-subnet-${count.index + 1}"
+    Name = "kamran-private-subnet-${count.index + 1}"
   }
 }
 
@@ -53,7 +53,7 @@ resource "aws_route_table" "public" {
   }
 
   tags = {
-    Name = "devops-public-rt"
+    Name = "kamran-public-rt"
   }
 }
 
@@ -66,10 +66,10 @@ resource "aws_route_table_association" "public" {
 
 # DB Subnet Group
 resource "aws_db_subnet_group" "main" {
-  name       = "devops-db-subnet-group"
+  name       = "kamran-db-subnet-group"
   subnet_ids = aws_subnet.private[*].id
 
   tags = {
-    Name = "devops-db-subnet-group"
+    Name = "kamran-db-subnet-group"
   }
 }

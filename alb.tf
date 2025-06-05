@@ -1,6 +1,6 @@
 # Application Load Balancer
 resource "aws_lb" "main" {
-  name               = "devops-alb"
+  name               = "kamran-alb"
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
@@ -9,7 +9,7 @@ resource "aws_lb" "main" {
   enable_deletion_protection = false
 
   tags = {
-    Name = "devops-alb"
+    Name = "kamran-alb"
   }
 }
 
@@ -24,7 +24,7 @@ resource "aws_acm_certificate" "main" {
   }
 
   tags = {
-    Name = "devops-cert"
+    Name = "kamran-cert"
   }
 }
 

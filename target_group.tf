@@ -1,6 +1,6 @@
 # Target Group for Application
 resource "aws_lb_target_group" "app" {
-  name     = "devops-app-tg"
+  name     = "kamran-app-tg"
   port     = 80
   protocol = "HTTP"
   vpc_id   = aws_vpc.main.id
@@ -18,6 +18,6 @@ resource "aws_lb_target_group" "app" {
   }
 
   tags = {
-    Name = "devops-app-tg"
+    Name = "kamran-app-tg"
   }
 }

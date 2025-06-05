@@ -1,6 +1,6 @@
 # ALB Security Group
 resource "aws_security_group" "alb" {
-  name        = "devops-alb-sg"
+  name        = "kamran-alb-sg"
   description = "Security group for Application Load Balancer"
   vpc_id      = aws_vpc.main.id
 
@@ -26,13 +26,13 @@ resource "aws_security_group" "alb" {
   }
 
   tags = {
-    Name = "devops-alb-sg"
+    Name = "kamran-alb-sg"
   }
 }
 
 # EC2 Security Group
 resource "aws_security_group" "ec2" {
-  name        = "devops-ec2-sg"
+  name        = "kamran-ec2-sg"
   description = "Security group for EC2 instances"
   vpc_id      = aws_vpc.main.id
 
@@ -79,13 +79,13 @@ resource "aws_security_group" "ec2" {
   }
 
   tags = {
-    Name = "devops-ec2-sg"
+    Name = "kamran-ec2-sg"
   }
 }
 
 # RDS MySQL Security Group
 resource "aws_security_group" "rds_mysql" {
-  name        = "devops-rds-mysql-sg"
+  name        = "kamran-rds-mysql-sg"
   description = "Security group for RDS MySQL"
   vpc_id      = aws_vpc.main.id
 
@@ -97,13 +97,13 @@ resource "aws_security_group" "rds_mysql" {
   }
 
   tags = {
-    Name = "devops-rds-mysql-sg"
+    Name = "kamran-rds-mysql-sg"
   }
 }
 
 # RDS PostgreSQL Security Group
 resource "aws_security_group" "rds_postgresql" {
-  name        = "devops-rds-postgresql-sg"
+  name        = "kamran-rds-postgresql-sg"
   description = "Security group for RDS PostgreSQL"
   vpc_id      = aws_vpc.main.id
 
@@ -115,6 +115,6 @@ resource "aws_security_group" "rds_postgresql" {
   }
 
   tags = {
-    Name = "devops-rds-postgresql-sg"
+    Name = "kamran-rds-postgresql-sg"
   }
 }

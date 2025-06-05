@@ -11,7 +11,7 @@ data "aws_ami" "amazon_linux" {
 
 # Launch Template for Application Servers
 resource "aws_launch_template" "app" {
-  name_prefix   = "devops-app-"
+  name_prefix   = "kamran-app-"
   image_id      = data.aws_ami.amazon_linux.id
   instance_type = "t2.micro"
   key_name      = var.key_name
@@ -33,14 +33,14 @@ resource "aws_launch_template" "app" {
   tag_specifications {
     resource_type = "instance"
     tags = {
-      Name = "devops-app-instance"
+      Name = "kamran-app-instance"
     }
   }
 }
 
 # Auto Scaling Group for Application Servers
 resource "aws_autoscaling_group" "app" {
-  name                = "devops-app-asg"
+  name                = "kamran-app-asg"
   vpc_zone_identifier = aws_subnet.public[*].id
   target_group_arns   = [aws_lb_target_group.app.arn]
   health_check_type   = "ELB"
@@ -55,7 +55,7 @@ resource "aws_autoscaling_group" "app" {
 
   tag {
     key                 = "Name"
-    value               = "devops-app-asg"
+    value               = "kamran-app-asg"
     propagate_at_launch = false
   }
 }
@@ -75,6 +75,6 @@ resource "aws_instance" "bi_tool" {
   }))
 
   tags = {
-    Name = "devops-bi-tool"
+    Name = "kamran-bi-tool"
   }
 }
