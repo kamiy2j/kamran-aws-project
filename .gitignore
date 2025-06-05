@@ -1,0 +1,154 @@
+# ==========================================
+# AWS DevOps Project - .gitignore
+# ==========================================
+
+# ========== CRITICAL SECURITY FILES ==========
+# NEVER commit these files - they contain sensitive data
+
+# AWS Credentials
+.aws/
+*.pem
+*.ppk
+aws-credentials.txt
+credentials
+config
+
+# SSH Keys
+id_rsa
+id_rsa.pub
+*.key
+*.crt
+key-pairs/
+
+# Terraform State Files (Contains sensitive data)
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+terraform.tfvars
+terraform.tfvars.json
+.terraform/
+.terraform.lock.hcl
+crash.log
+crash.*.log
+
+# Environment Variables with Secrets
+.env
+.env.local
+.env.production
+.env.development
+docker/.env
+
+# Database dumps and backups
+*.sql
+*.dump
+backup/
+dumps/
+
+# ========== APPLICATION FILES ==========
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# React Build
+build/
+dist/
+.DS_Store
+
+# Logs
+logs/
+*.log
+log/
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# ========== IDE AND EDITOR FILES ==========
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# ========== OPERATING SYSTEM FILES ==========
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+
+# Linux
+*~
+.nfs*
+
+# ========== TEMPORARY FILES ==========
+
+# Temporary directories
+tmp/
+temp/
+.tmp/
+
+# Cache directories
+.cache/
+.parcel-cache/
+
+# ========== DOCKER ==========
+
+# Docker volumes and data
+docker-data/
+volumes/
+
+# ========== DOCUMENTATION ==========
+
+# Large media files (use Git LFS instead)
+*.mp4
+*.avi
+*.mov
+*.wmv
+
+# Personal notes
+notes.txt
+TODO.txt
+personal/
+
+# ========== SAFE TO INCLUDE ==========
+# These files are safe and should be committed:
+
+# !README.md
+# !.env.example
+# !docker-compose.yml
+# !Dockerfile
+# !*.tf
+# !*.sh
+# !package.json
+
+# ==========================================
+# End of .gitignore
+# ==========================================
