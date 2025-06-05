@@ -42,7 +42,7 @@ function App() {
   return (
     <div className="App">
       <header className="App-header">
-        <h1>DevOps Demo Application</h1>
+        <h1>Kamran Demo Application</h1>
         <p>Full-Stack Application with Auto Scaling, Load Balancer & RDS</p>
       </header>
 
