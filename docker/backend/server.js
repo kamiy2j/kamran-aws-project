@@ -15,7 +15,7 @@ app.use(express.json());
 const pgPool = new Pool({
   host: process.env.PG_HOST || 'localhost',
   port: process.env.PG_PORT || 5432,
-  database: process.env.PG_DATABASE || 'kamrandb',
+  database: process.env.PG_DATABASE || 'kamranpgdb',
   user: process.env.PG_USER || 'admin',
   password: process.env.PG_PASSWORD || 'Password123!',
 });
@@ -23,7 +23,7 @@ const pgPool = new Pool({
 const mysqlConfig = {
   host: process.env.MYSQL_HOST || 'localhost',
   port: process.env.MYSQL_PORT || 3306,
-  database: process.env.MYSQL_DATABASE || 'kamrandb',
+  database: process.env.MYSQL_DATABASE || 'kamranmysqldb',
   user: process.env.MYSQL_USER || 'admin',
   password: process.env.MYSQL_PASSWORD || 'Password123!',
 };

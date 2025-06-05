@@ -27,7 +27,7 @@ sudo docker run -d \
   --name metabase \
   -p 5000:3000 \
   -e MB_DB_TYPE=postgres \
-  -e MB_DB_DBNAME=devopsdb \
+  -e MB_DB_DBNAME=kamranpgdb \
   -e MB_DB_PORT=5432 \
   -e MB_DB_USER=${db_username} \
   -e MB_DB_PASS=${db_password} \

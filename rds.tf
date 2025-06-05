@@ -10,7 +10,7 @@ resource "aws_db_instance" "mysql" {
   storage_type          = "gp2"
   storage_encrypted     = true
 
-  db_name  = "kamrandb"
+  db_name  = "kamranmysqldb"
   username = var.db_username
   password = var.db_password
 
@@ -41,7 +41,7 @@ resource "aws_db_instance" "postgresql" {
   storage_type          = "gp2"
   storage_encrypted     = true
 
-  db_name  = "kamrandb"
+  db_name  = "kamranpgdb"
   username = var.db_username
   password = var.db_password
 
