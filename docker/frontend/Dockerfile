@@ -1,19 +1,14 @@
 # Multi-stage build for React frontend
 FROM node:20-alpine AS builder
-
 WORKDIR /app
 COPY package*.json ./
-
-# Use npm install instead of npm ci
-RUN npm install
-
+RUN npm ci --production && npm cache clean --force
 COPY . .
-RUN npm run build
+RUN npm run build && rm -rf node_modules src
 
 # Production stage
 FROM nginx:alpine
 COPY --from=builder /app/build /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-
 EXPOSE 3000
 CMD ["nginx", "-g", "daemon off;"]

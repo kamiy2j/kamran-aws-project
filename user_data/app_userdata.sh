@@ -10,9 +10,13 @@ sudo systemctl enable nginx docker
 sudo systemctl start nginx docker
 sudo usermod -aG docker ec2-user
 
-# Install Docker Compose
-sudo curl -L https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$$(uname -m) -o /usr/bin/docker-compose
-sudo chmod 755 /usr/bin/docker-compose
+# Create swap file for t2.micro (1GB instance)
+echo "Creating swap space..."
+sudo dd if=/dev/zero of=/swapfile bs=1M count=1024
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 
 sleep 15
 
@@ -37,9 +41,23 @@ MYSQL_PASSWORD=${mysql_password}
 REACT_APP_API_URL=/api
 EOF
 
-# Clear Docker space and build
-sudo docker system prune -f
-sudo -u ec2-user docker-compose up -d --build
+# Clear Docker space
+sudo docker system prune -af
+
+# Build containers sequentially to reduce memory usage
+echo "Building backend..."
+sudo -u ec2-user docker build -t app-backend ./backend
+sudo docker image prune -f
+
+echo "Building frontend..."
+sudo -u ec2-user docker build -t app-frontend ./frontend
+sudo docker image prune -f
+
+# Run containers
+echo "Starting containers..."
+sudo -u ec2-user docker run -d --name backend -p 5000:5000 --env-file .env --restart unless-stopped app-backend
+sleep 10
+sudo -u ec2-user docker run -d --name frontend -p 3000:3000 --restart unless-stopped app-frontend
 
 # Configure Nginx
 sudo tee /etc/nginx/conf.d/app.conf > /dev/null << 'EOF'
@@ -54,6 +72,10 @@ EOF
 
 sudo rm -f /etc/nginx/conf.d/default.conf
 sudo systemctl restart nginx
+
+# Final cleanup
+sudo docker image prune -f
+sudo docker container prune -f
 
 sleep 30
 curl localhost/health

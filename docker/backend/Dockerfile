@@ -1,22 +1,9 @@
-# Multi-stage build for Node.js backend
-FROM node:20-alpine AS builder
-
-WORKDIR /app
-COPY package*.json ./
-
-# Use npm install instead of npm ci for development
-RUN npm install --only=production
-
-# Production stage
+# Backend Dockerfile for Node.js
 FROM node:20-alpine
 WORKDIR /app
-
-# Copy node_modules from builder stage
-COPY --from=builder /app/node_modules ./node_modules
+COPY package*.json ./
+RUN npm ci --only=production && npm cache clean --force
 COPY . .
-
-EXPOSE 5000
-
 USER node
-
+EXPOSE 5000
 CMD ["npm", "start"]
