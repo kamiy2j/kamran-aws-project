@@ -19,7 +19,7 @@ variable "key_name" {
 variable "db_username" {
   description = "Database username"
   type        = string
-  default     = "admin"
+  default     = "kamranuser"
 }
 
 variable "db_password" {

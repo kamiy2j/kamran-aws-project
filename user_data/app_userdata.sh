@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Update system and install required packages
-sudo yum update -y
-sudo yum install -y nginx docker git
+# Update system and install required packages (AL2023 uses dnf)
+sudo dnf update -y
+sudo dnf install -y nginx docker git
 
 # Install Docker Compose
 sudo curl -L "https://github.com/docker/compose/releases/download/v2.21.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
@@ -10,7 +10,7 @@ sudo chmod +x /usr/local/bin/docker-compose
 
 # Install Node.js 20
 curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo bash -
-sudo yum install -y nodejs
+sudo dnf install -y nodejs
 
 # Enable and start services
 sudo systemctl enable nginx docker

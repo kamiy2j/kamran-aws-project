@@ -5,7 +5,7 @@ data "aws_ami" "amazon_linux" {
 
   filter {
     name   = "name"
-    values = ["amzn2-ami-hvm-*-x86_64-gp2"]
+    values = ["al2023-ami-*-x86_64"]
   }
 }
 
@@ -44,6 +44,7 @@ resource "aws_autoscaling_group" "app" {
   vpc_zone_identifier = aws_subnet.public[*].id
   target_group_arns   = [aws_lb_target_group.app.arn]
   health_check_type   = "ELB"
+  health_check_grace_period = 600    # Changed from 300 (default)
   min_size            = 2
   max_size            = 3
   desired_capacity    = 2
