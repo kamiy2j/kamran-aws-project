@@ -66,6 +66,7 @@ EOF
 # Start Docker containers
 echo "Starting Docker containers..."
 sleep 10
+cd /home/ec2-user/app/docker
 sudo -u ec2-user /usr/local/bin/docker-compose up -d
 
 # Wait for containers to start
