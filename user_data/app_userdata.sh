@@ -4,24 +4,15 @@
 exec > >(tee /var/log/user-data.log) 2>&1
 echo "=== User Data Script Started at $$(date) ==="
 
-# Update system first
-echo "Updating system..."
-sudo dnf update -y
+# Update system and install packages in one command (AL2023 approach)
+echo "Installing packages..."
+sudo dnf update -y && \
+sudo dnf install -y nginx docker git curl wget unzip
 
-# Install basic packages (AL2023 approach)
-echo "Installing base packages..."
-sudo dnf install -y git curl wget unzip
-
-# Install Docker (AL2023 specific)
-echo "Installing Docker..."
-sudo dnf install -y docker
-sudo systemctl enable docker
-sudo systemctl start docker
-
-# Install nginx
-echo "Installing nginx..."
-sudo dnf install -y nginx
-sudo systemctl enable nginx
+# Enable and start services
+echo "Starting services..."
+sudo systemctl enable nginx docker && \
+sudo systemctl start nginx docker
 
 # Install Docker Compose
 echo "Installing Docker Compose..."
@@ -48,53 +39,10 @@ git --version || echo "Git installation failed"
 echo "Waiting for Docker to start..."
 sleep 15
 
-# Function for fallback clone
-fallback_clone() {
-    echo "Using fallback method to download repository..."
-    sudo dnf install -y unzip
-    repo_name=$$(basename "${github_repo}" .git)
-    base_url=$$(echo "${github_repo}" | sed 's/\.git$$//')
-    zip_url="$$base_url/archive/refs/heads/main.zip"
-    curl -L "$$zip_url" -o /tmp/repo.zip
-    if [ $$? -ne 0 ]; then
-        echo "ERROR: Failed to download repository zip"
-        exit 1
-    fi
-    unzip /tmp/repo.zip -d /home/ec2-user
-    if [ $$? -ne 0 ]; then
-        echo "ERROR: Failed to extract repository zip"
-        exit 1
-    fi
-    mv "/home/ec2-user/$${repo_name}-main" /home/ec2-user/app
-    if [ $$? -ne 0 ]; then
-        echo "ERROR: Failed to move extracted directory"
-        exit 1
-    fi
-    rm /tmp/repo.zip
-}
-
 # Clone the repository
 echo "Cloning repository..."
 cd /home/ec2-user
-
-if command -v git &> /dev/null; then
-    git clone ${github_repo} app
-    if [ $$? -ne 0 ]; then
-        echo "Git clone failed, attempting fallback..."
-        fallback_clone
-    fi
-else
-    echo "Git not found, using fallback method..."
-    fallback_clone
-fi
-
-# Check if app directory exists
-if [ ! -d "app" ]; then
-    echo "ERROR: Failed to obtain the repository. Cannot proceed."
-    exit 1
-fi
-
-# Set proper ownership
+sudo git clone ${github_repo} app
 sudo chown -R ec2-user:ec2-user app
 
 # Navigate to docker directory
@@ -163,8 +111,8 @@ NGINXEOF
 # Remove default nginx config
 sudo rm -f /etc/nginx/conf.d/default.conf /etc/nginx/sites-enabled/default 2>/dev/null
 
-# Start nginx
-sudo systemctl start nginx
+# Restart nginx
+sudo systemctl restart nginx
 
 # Verify services
 echo "=== Final Status Check ==="
