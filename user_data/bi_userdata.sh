@@ -77,27 +77,31 @@ if [ "$SETUP_TOKEN" != "null" ] && [ -n "$SETUP_TOKEN" ]; then
     
     # Setup with actual token
     curl -X POST http://localhost:5000/api/setup \
-      -H "Content-Type: application/json" \
-      -d '{
+    -H "Content-Type: application/json" \
+    -d '{
         "token": "'$SETUP_TOKEN'",
         "user": {
-          "first_name": "Kamran",
-          "last_name": "Shahid", 
-          "email": "kamiy2j@gmail.com",
-          "password": "Password123!"
+        "first_name": "Kamran",
+        "last_name": "Shahid", 
+        "email": "kamiy2j@gmail.com",
+        "password": "Password123!"
         },
         "database": {
-          "engine": "postgres",
-          "name": "PostgreSQL",
-          "details": {
+        "engine": "postgres",
+        "name": "PostgreSQL",
+        "details": {
             "host": "'$DB_HOST_CLEAN'",
             "port": 5432,
             "dbname": "'${pg_database}'",
             "user": "'${pg_user}'",
             "password": "'${pg_password}'"
-          }
         }
-      }'
+        },
+        "prefs": {
+        "site_name": "Metabase BI Tool",
+        "site_locale": "en"
+        }
+    }'
     
     sleep 15
     
