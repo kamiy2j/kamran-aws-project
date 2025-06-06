@@ -82,9 +82,16 @@ resource "aws_instance" "bi_tool" {
   }
 
   user_data = base64encode(templatefile("${path.module}/user_data/bi_userdata.sh", {
-    db_host     = aws_db_instance.postgresql.endpoint
-    db_username = var.db_username
-    db_password = var.db_password
+    db_host        = split(":", aws_db_instance.postgresql.endpoint)[0]
+    db_username    = var.db_username
+    db_password    = var.db_password
+    pg_database    = aws_db_instance.postgresql.db_name
+    pg_user        = var.db_username
+    pg_password    = var.db_password
+    mysql_host     = split(":", aws_db_instance.mysql.endpoint)[0]
+    mysql_database = aws_db_instance.mysql.db_name
+    mysql_user     = var.db_username
+    mysql_password = var.db_password
   }))
 
   tags = {

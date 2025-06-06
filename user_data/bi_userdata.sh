@@ -43,27 +43,33 @@ sudo docker run -d \
 echo "Waiting for Metabase to start..."
 sleep 60
 
-# Test if Metabase is responding
-echo "Testing Metabase..."
-for i in {1..10}; do
-    if curl -s http://localhost:5000/api/health 2>/dev/null; then
-        echo "Metabase is running!"
+# Wait for Metabase to be fully ready (not just responding)
+echo "Waiting for Metabase to fully initialize..."
+for i in {1..20}; do
+    RESPONSE=$(curl -s http://localhost:5000/api/health 2>/dev/null || echo "")
+    if [[ "$RESPONSE" == *'"status":"ok"'* ]]; then
+        echo "Metabase is fully ready!"
         break
     else
-        echo "Waiting for Metabase... attempt $i"
+        echo "Waiting for full initialization... attempt $i (current: $RESPONSE)"
         sleep 30
     fi
 done
 
-# Auto-setup admin and databases via API
-if curl -s http://localhost:5000/api/health 2>/dev/null; then
+# Additional wait to ensure setup endpoint is ready
+sleep 30
+
+# Check if already setup
+SETUP_TOKEN=$(curl -s http://localhost:5000/api/session/properties | grep -o '"setup_token":"[^"]*"' | cut -d'"' -f4)
+
+if [ "$SETUP_TOKEN" != "null" ] && [ -n "$SETUP_TOKEN" ]; then
     echo "Setting up Metabase admin and databases..."
     
-    # Setup admin user and PostgreSQL database
+    # Setup with actual token
     curl -X POST http://localhost:5000/api/setup \
       -H "Content-Type: application/json" \
       -d '{
-        "token": null,
+        "token": "'$SETUP_TOKEN'",
         "user": {
           "first_name": "Admin",
           "last_name": "User", 
@@ -83,31 +89,33 @@ if curl -s http://localhost:5000/api/health 2>/dev/null; then
         }
       }'
     
-    sleep 10
+    sleep 15
     
-    # Get session token and add MySQL database
-    SESSION_ID=$(curl -X POST http://localhost:5000/api/session \
+    # Login and add MySQL
+    SESSION_ID=$(curl -s -X POST http://localhost:5000/api/session \
       -H "Content-Type: application/json" \
       -d '{"username": "admin@example.com", "password": "Password123!"}' | \
       grep -o '"id":"[^"]*"' | cut -d'"' -f4)
     
-    # Add MySQL database
-    curl -X POST http://localhost:5000/api/database \
-      -H "Content-Type: application/json" \
-      -H "X-Metabase-Session: $SESSION_ID" \
-      -d '{
-        "engine": "mysql",
-        "name": "MySQL",
-        "details": {
-          "host": "'${mysql_host}'",
-          "port": 3306,
-          "dbname": "'${mysql_database}'",
-          "user": "'${mysql_user}'",
-          "password": "'${mysql_password}'"
-        }
-      }'
-    
-    echo "Metabase setup completed!"
+    if [ -n "$SESSION_ID" ]; then
+        curl -X POST http://localhost:5000/api/database \
+          -H "Content-Type: application/json" \
+          -H "X-Metabase-Session: $SESSION_ID" \
+          -d '{
+            "engine": "mysql",
+            "name": "MySQL",
+            "details": {
+              "host": "'${mysql_host}'",
+              "port": 3306,
+              "dbname": "'${mysql_database}'",
+              "user": "'${mysql_user}'",
+              "password": "'${mysql_password}'"
+            }
+          }'
+        echo "Metabase setup completed!"
+    fi
+else
+    echo "Metabase already configured or setup token not available"
 fi
 
 # Show final status
