@@ -10,9 +10,12 @@ sudo systemctl enable nginx docker
 sudo systemctl start nginx docker
 sudo usermod -aG docker ec2-user
 
+sudo dnf clean all
+sudo rm -rf /var/cache/dnf/*
+
 # Create swap file for t2.micro (1GB instance)
 echo "Creating swap space..."
-sudo dd if=/dev/zero of=/swapfile bs=1M count=1024
+sudo dd if=/dev/zero of=/swapfile bs=1M count=512
 sudo chmod 600 /swapfile
 sudo mkswap /swapfile
 sudo swapon /swapfile
