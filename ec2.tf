@@ -18,7 +18,7 @@ resource "aws_instance" "app" {
   key_name               = var.key_name
   vpc_security_group_ids = [aws_security_group.ec2.id]
 
-  user_data = base64encode(templatefile("${path.module}/user_data/app_userdata_fixed.sh", {
+  user_data = base64encode(templatefile("${path.module}/user_data/app_userdata.sh", {
     github_repo    = var.github_repo
     pg_host        = aws_db_instance.postgresql.endpoint
     pg_database    = aws_db_instance.postgresql.db_name
