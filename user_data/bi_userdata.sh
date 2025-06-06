@@ -4,22 +4,25 @@
 exec > >(tee /var/log/user-data.log) 2>&1
 echo "=== BI Tool User Data Script Started at $(date) ==="
 
-# Update system and install required packages (AL2023 uses dnf)
+# Update system and install required packages
 echo "Installing packages..."
 sudo dnf update -y
-sudo dnf install -y docker
+sudo dnf install -y docker nginx python3-pip
 
+# Install certbot
+sudo pip3 install certbot certbot-nginx
+
+# Create swap
 sudo dd if=/dev/zero of=/swapfile bs=1M count=2048
 sudo chmod 600 /swapfile
 sudo mkswap /swapfile
 sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 
 # Enable and start Docker
 echo "Starting Docker..."
 sudo systemctl enable docker
 sudo systemctl start docker
-
-# Add ec2-user to docker group
 sudo usermod -aG docker ec2-user
 
 # Wait for Docker to be ready
@@ -53,13 +56,53 @@ for i in {1..20}; do
     fi
 done
 
-# Additional wait to ensure setup endpoint is ready
-sleep 60
+# Now configure nginx after Metabase is ready
+echo "Configuring nginx..."
+sudo systemctl enable nginx
+sudo systemctl start nginx
+
+# Remove default config
+sudo rm -f /etc/nginx/conf.d/default.conf
+sudo rm -f /etc/nginx/sites-enabled/default 2>/dev/null
+
+# Configure nginx proxy
+sudo tee /etc/nginx/conf.d/bi.conf > /dev/null << 'EOF'
+server {
+    listen 80;
+    server_name bi.kamranshahid.com;
+    
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+    }
+}
+EOF
+
+# Test and reload nginx
+sudo nginx -t
+sudo systemctl reload nginx
+
+# Wait a bit more for everything to stabilize
+sleep 30
+
+# Get SSL certificate
+echo "Obtaining SSL certificate..."
+sudo certbot --nginx -d bi.kamranshahid.com --non-interactive --agree-tos --email kamiy2j@gmail.com
+
+# Setup auto-renewal
+echo "0 12 * * * /usr/bin/certbot renew --quiet" | sudo crontab -
 
 # Test database connectivity
 echo "Testing database connectivity..."
 timeout 10 bash -c "</dev/tcp/${pg_host}/5432" 2>/dev/null && echo "PostgreSQL reachable" || echo "PostgreSQL unreachable"
 timeout 10 bash -c "</dev/tcp/${mysql_host}/3306" 2>/dev/null && echo "MySQL reachable" || echo "MySQL unreachable"
+
+# Additional wait to ensure setup endpoint is ready
+sleep 60
 
 # Check if already setup
 SETUP_RESPONSE=$(curl -s http://localhost:5000/api/session/properties 2>/dev/null || echo "")
@@ -157,6 +200,7 @@ fi
 # Show final status
 echo "=== Final Status ==="
 echo "Docker status: $(sudo systemctl is-active docker)"
+echo "Nginx status: $(sudo systemctl is-active nginx)"
 echo "Running containers:"
 sudo docker ps
 
