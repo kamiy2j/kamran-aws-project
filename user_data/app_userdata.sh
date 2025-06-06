@@ -56,11 +56,14 @@ echo "Building frontend..."
 sudo -u ec2-user docker build -t app-frontend ./frontend
 sudo docker image prune -f
 
-# Run containers
+# Create network
+echo "Creating network..."
+sudo -u ec2-user docker network create app-network
+
+# Run containers with network
 echo "Starting containers..."
-sudo -u ec2-user docker run -d --name backend -p 5000:5000 --env-file .env --restart unless-stopped app-backend
-sleep 10
-sudo -u ec2-user docker run -d --name frontend -p 3000:3000 --restart unless-stopped app-frontend
+sudo -u ec2-user docker run -d --name backend --network app-network -p 5000:5000 --env-file .env --restart unless-stopped app-backend
+sudo -u ec2-user docker run -d --name frontend --network app-network -p 3000:3000 --restart unless-stopped app-frontend
 
 # Configure Nginx
 sudo tee /etc/nginx/conf.d/app.conf > /dev/null << 'EOF'

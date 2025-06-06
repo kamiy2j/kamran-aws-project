@@ -133,7 +133,7 @@ test_endpoints() {
     
     # Test frontend
     print_status "Testing frontend..."
-    if curl -s http://localhost:3000 | grep -q "DevOps Demo"; then
+    if curl -s http://localhost:3000 | grep -q "Kamran Demo"; then
         print_success "✅ Frontend is serving content"
     else
         print_warning "⚠️  Frontend might not be fully loaded"
