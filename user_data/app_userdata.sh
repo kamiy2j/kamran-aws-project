@@ -16,9 +16,8 @@ sudo systemctl start nginx docker
 
 # Install Docker Compose
 echo "Installing Docker Compose..."
-sudo curl -L "https://github.com/docker/compose/releases/download/v2.21.0/docker-compose-$$(uname -s)-$$(uname -m)" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
-sudo ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose
+sudo curl -L https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m) -o /usr/bin/docker-compose && sudo chmod 755 /usr/bin/docker-compose && docker-compose --version 
+
 
 # Install Node.js 20
 echo "Installing Node.js 20..."
