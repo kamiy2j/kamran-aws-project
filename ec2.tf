@@ -71,10 +71,15 @@ resource "aws_autoscaling_group" "app" {
 # BI Tool Instance
 resource "aws_instance" "bi_tool" {
   ami                    = data.aws_ami.amazon_linux.id
-  instance_type          = "t2.micro"  # Free tier eligible
+  instance_type          = "t2.micro"
   subnet_id              = aws_subnet.public[0].id
   key_name               = var.key_name
   vpc_security_group_ids = [aws_security_group.ec2.id]
+
+  root_block_device {
+    volume_size = 12
+    volume_type = "gp3"
+  }
 
   user_data = base64encode(templatefile("${path.module}/user_data/bi_userdata.sh", {
     db_host     = aws_db_instance.postgresql.endpoint

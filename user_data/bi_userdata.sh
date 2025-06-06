@@ -7,7 +7,12 @@ echo "=== BI Tool User Data Script Started at $(date) ==="
 # Update system and install required packages (AL2023 uses dnf)
 echo "Installing packages..."
 sudo dnf update -y
-sudo dnf install -y docker curl
+sudo dnf install -y docker
+
+sudo dd if=/dev/zero of=/swapfile bs=1M count=2048
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
 
 # Enable and start Docker
 echo "Starting Docker..."
@@ -31,7 +36,7 @@ sudo docker run -d \
   --restart unless-stopped \
   -p 5000:3000 \
   -e MB_DB_TYPE=h2 \
-  -e JAVA_OPTS="-Xmx512m" \
+  -e JAVA_OPTS="-Xmx256m -Xms128m" \
   metabase/metabase:latest
 
 # Wait for Metabase to start
@@ -49,6 +54,61 @@ for i in {1..10}; do
         sleep 30
     fi
 done
+
+# Auto-setup admin and databases via API
+if curl -s http://localhost:5000/api/health 2>/dev/null; then
+    echo "Setting up Metabase admin and databases..."
+    
+    # Setup admin user and PostgreSQL database
+    curl -X POST http://localhost:5000/api/setup \
+      -H "Content-Type: application/json" \
+      -d '{
+        "token": null,
+        "user": {
+          "first_name": "Admin",
+          "last_name": "User", 
+          "email": "admin@example.com",
+          "password": "Password123!"
+        },
+        "database": {
+          "engine": "postgres",
+          "name": "PostgreSQL",
+          "details": {
+            "host": "'$DB_HOST_CLEAN'",
+            "port": 5432,
+            "dbname": "'${pg_database}'",
+            "user": "'${pg_user}'",
+            "password": "'${pg_password}'"
+          }
+        }
+      }'
+    
+    sleep 10
+    
+    # Get session token and add MySQL database
+    SESSION_ID=$(curl -X POST http://localhost:5000/api/session \
+      -H "Content-Type: application/json" \
+      -d '{"username": "admin@example.com", "password": "Password123!"}' | \
+      grep -o '"id":"[^"]*"' | cut -d'"' -f4)
+    
+    # Add MySQL database
+    curl -X POST http://localhost:5000/api/database \
+      -H "Content-Type: application/json" \
+      -H "X-Metabase-Session: $SESSION_ID" \
+      -d '{
+        "engine": "mysql",
+        "name": "MySQL",
+        "details": {
+          "host": "'${mysql_host}'",
+          "port": 3306,
+          "dbname": "'${mysql_database}'",
+          "user": "'${mysql_user}'",
+          "password": "'${mysql_password}'"
+        }
+      }'
+    
+    echo "Metabase setup completed!"
+fi
 
 # Show final status
 echo "=== Final Status ==="
