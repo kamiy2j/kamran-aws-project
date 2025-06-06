@@ -7,7 +7,7 @@ echo "=== User Data Script Started at $$(date) ==="
 # Update system and install packages in one command (AL2023 approach)
 echo "Installing packages..."
 sudo dnf update -y && \
-sudo dnf install -y nginx docker git curl wget unzip
+sudo dnf install -y nginx docker git curl wget unzip  && \
 
 # Enable and start services
 echo "Starting services..."
