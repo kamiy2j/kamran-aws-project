@@ -53,7 +53,8 @@ fallback_clone() {
     echo "Using fallback method to download repository..."
     sudo dnf install -y unzip
     repo_name=$$(basename "${github_repo}" .git)
-    zip_url="${github_repo%.git}/archive/refs/heads/main.zip"
+    base_url=$$(echo "${github_repo}" | sed 's/\.git$$//')
+    zip_url="$$base_url/archive/refs/heads/main.zip"
     curl -L "$$zip_url" -o /tmp/repo.zip
     if [ $$? -ne 0 ]; then
         echo "ERROR: Failed to download repository zip"
