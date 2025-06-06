@@ -6,12 +6,12 @@ echo "=== User Data Script Started at $$(date) ==="
 
 # Update system and install packages in one command (AL2023 approach)
 echo "Installing packages..."
-sudo dnf update -y && \
-sudo dnf install -y nginx docker git wget unzip  && \
+sudo dnf update -y
+sudo dnf install -y nginx docker git wget unzip
 
 # Enable and start services
 echo "Starting services..."
-sudo systemctl enable nginx docker && \
+sudo systemctl enable nginx docker
 sudo systemctl start nginx docker
 
 # Install Docker Compose
@@ -75,7 +75,7 @@ sleep 90
 
 # Configure Nginx as reverse proxy
 echo "Configuring Nginx..."
-cat <<NGINXEOF | sudo tee /etc/nginx/conf.d/app.conf
+sudo tee /etc/nginx/conf.d/app.conf > /dev/null << 'NGINXEOF'
 server {
     listen 80 default_server;
     server_name _;
@@ -83,27 +83,27 @@ server {
     # Health check endpoint
     location /health {
         proxy_pass http://127.0.0.1:5000/health;
-        proxy_set_header Host \$$host;
-        proxy_set_header X-Real-IP \$$remote_addr;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
         access_log off;
     }
 
     # API endpoints
     location /api/ {
         proxy_pass http://127.0.0.1:5000/api/;
-        proxy_set_header Host \$$host;
-        proxy_set_header X-Real-IP \$$remote_addr;
-        proxy_set_header X-Forwarded-For \$$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$$scheme;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 
     # Frontend (default location)
     location / {
         proxy_pass http://127.0.0.1:3000;
-        proxy_set_header Host \$$host;
-        proxy_set_header X-Real-IP \$$remote_addr;
-        proxy_set_header X-Forwarded-For \$$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$$scheme;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 NGINXEOF
