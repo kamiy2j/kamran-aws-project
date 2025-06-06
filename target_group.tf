@@ -10,12 +10,15 @@ resource "aws_lb_target_group" "app" {
     healthy_threshold   = 2
     interval            = 30
     matcher             = "200"
-    path                = "/"
+    path                = "/health"  # Changed from "/" to "/health"
     port                = "traffic-port"
     protocol            = "HTTP"
-    timeout             = 15
-    unhealthy_threshold = 5
+    timeout             = 10         # Reduced from 15
+    unhealthy_threshold = 3          # Reduced from 5
   }
+
+  # Deregistration delay
+  deregistration_delay = 30  # Reduced from default 300
 
   tags = {
     Name = "kamran-app-tg"

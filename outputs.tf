@@ -29,3 +29,8 @@ output "bi_tool_public_ip" {
   description = "BI Tool instance public IP"
   value       = aws_instance.bi_tool.public_ip
 }
+
+output "app_instance_ips" {
+  description = "App instance public IPs"
+  value       = aws_instance.app[*].public_ip
+}
