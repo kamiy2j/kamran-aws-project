@@ -2,7 +2,7 @@
 
 # Enhanced logging
 exec > >(tee /var/log/user-data.log) 2>&1
-echo "=== User Data Script Started at $(date) ==="
+echo "=== User Data Script Started at $$(date) ==="
 
 # Update system first
 echo "Updating system..."
@@ -25,7 +25,7 @@ sudo systemctl enable nginx
 
 # Install Docker Compose
 echo "Installing Docker Compose..."
-sudo curl -L "https://github.com/docker/compose/releases/download/v2.21.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo curl -L "https://github.com/docker/compose/releases/download/v2.21.0/docker-compose-$$(uname -s)-$$(uname -m)" -o /usr/local/bin/docker-compose
 sudo chmod +x /usr/local/bin/docker-compose
 sudo ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose
 
@@ -52,20 +52,20 @@ sleep 15
 fallback_clone() {
     echo "Using fallback method to download repository..."
     sudo dnf install -y unzip
-    repo_name=$(basename "${github_repo}" .git)
+    repo_name=$$(basename "${github_repo}" .git)
     zip_url="${github_repo%.git}/archive/refs/heads/main.zip"
-    curl -L "$zip_url" -o /tmp/repo.zip
-    if [ $? -ne 0 ]; then
+    curl -L "$$zip_url" -o /tmp/repo.zip
+    if [ $$? -ne 0 ]; then
         echo "ERROR: Failed to download repository zip"
         exit 1
     fi
     unzip /tmp/repo.zip -d /home/ec2-user
-    if [ $? -ne 0 ]; then
+    if [ $$? -ne 0 ]; then
         echo "ERROR: Failed to extract repository zip"
         exit 1
     fi
-    mv "/home/ec2-user/${repo_name}-main" /home/ec2-user/app
-    if [ $? -ne 0 ]; then
+    mv "/home/ec2-user/$${repo_name}-main" /home/ec2-user/app
+    if [ $$? -ne 0 ]; then
         echo "ERROR: Failed to move extracted directory"
         exit 1
     fi
@@ -78,7 +78,7 @@ cd /home/ec2-user
 
 if command -v git &> /dev/null; then
     git clone ${github_repo} app
-    if [ $? -ne 0 ]; then
+    if [ $$? -ne 0 ]; then
         echo "Git clone failed, attempting fallback..."
         fallback_clone
     fi
@@ -126,7 +126,7 @@ sleep 90
 
 # Configure Nginx as reverse proxy
 echo "Configuring Nginx..."
-cat <<EOF | sudo tee /etc/nginx/conf.d/app.conf
+cat <<NGINXEOF | sudo tee /etc/nginx/conf.d/app.conf
 server {
     listen 80 default_server;
     server_name _;
@@ -134,30 +134,30 @@ server {
     # Health check endpoint
     location /health {
         proxy_pass http://127.0.0.1:5000/health;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header Host \$$host;
+        proxy_set_header X-Real-IP \$$remote_addr;
         access_log off;
     }
 
     # API endpoints
     location /api/ {
         proxy_pass http://127.0.0.1:5000/api/;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Host \$$host;
+        proxy_set_header X-Real-IP \$$remote_addr;
+        proxy_set_header X-Forwarded-For \$$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$$scheme;
     }
 
     # Frontend (default location)
     location / {
         proxy_pass http://127.0.0.1:3000;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Host \$$host;
+        proxy_set_header X-Real-IP \$$remote_addr;
+        proxy_set_header X-Forwarded-For \$$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$$scheme;
     }
 }
-EOF
+NGINXEOF
 
 # Remove default nginx config
 sudo rm -f /etc/nginx/conf.d/default.conf /etc/nginx/sites-enabled/default 2>/dev/null
@@ -167,8 +167,8 @@ sudo systemctl start nginx
 
 # Verify services
 echo "=== Final Status Check ==="
-echo "Nginx status: $(sudo systemctl is-active nginx)"
-echo "Docker status: $(sudo systemctl is-active docker)"
+echo "Nginx status: $$(sudo systemctl is-active nginx)"
+echo "Docker status: $$(sudo systemctl is-active docker)"
 echo "Running containers:"
 sudo docker ps
 
@@ -180,9 +180,9 @@ for i in {1..10}; do
         echo "Health check successful!"
         break
     else
-        echo "Health check attempt $i failed, retrying..."
+        echo "Health check attempt $$i failed, retrying..."
         sleep 15
     fi
 done
 
-echo "=== User Data Script Completed at $(date) ==="
+echo "=== User Data Script Completed at $$(date) ==="
