@@ -31,80 +31,14 @@ sudo usermod -aG docker ec2-user
 echo "Waiting for services to initialize..."
 sleep 10
 
-# Clone the repository with fallback
+# Clone the repository
 echo "Cloning repository..."
 cd /home/ec2-user
 
-# Try cloning the repo, if it fails create a simple app
-if ! sudo git clone ${github_repo} app; then
-    echo "Git clone failed, creating demo app..."
-    sudo mkdir -p app/docker/{frontend,backend}
-    
-    # Create a simple demo docker-compose.yml
-    sudo tee app/docker/docker-compose.yml > /dev/null <<EOF
-version: '3.8'
-services:
-  frontend:
-    image: nginx:alpine
-    ports:
-      - "3000:80"
-    volumes:
-      - ./html:/usr/share/nginx/html
-    depends_on:
-      - backend
-
-  backend:
-    image: node:20-alpine
-    ports:
-      - "5000:5000"
-    working_dir: /app
-    command: node -e "
-      const http = require('http');
-      const server = http.createServer((req, res) => {
-        if (req.url === '/health') {
-          res.writeHead(200, {'Content-Type': 'application/json'});
-          res.end(JSON.stringify({status: 'healthy', timestamp: new Date().toISOString()}));
-        } else if (req.url.startsWith('/api/')) {
-          res.writeHead(200, {'Content-Type': 'application/json'});
-          res.end(JSON.stringify({message: 'Demo API', endpoint: req.url}));
-        } else {
-          res.writeHead(200, {'Content-Type': 'application/json'});
-          res.end(JSON.stringify({message: 'Kamran Demo Backend', version: '1.0.0'}));
-        }
-      });
-      server.listen(5000, '0.0.0.0', () => console.log('Demo server on port 5000'));
-    "
-EOF
-
-    # Create simple HTML for frontend
-    sudo mkdir -p app/docker/html
-    sudo tee app/docker/html/index.html > /dev/null <<EOF
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Kamran Demo App</title>
-    <style>
-        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
-        .container { max-width: 800px; margin: 0 auto; }
-        .status { background: rgba(255,255,255,0.1); padding: 20px; border-radius: 10px; margin: 20px 0; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🚀 Kamran AWS DevOps Demo</h1>
-        <p>Full-Stack Application with Auto Scaling, Load Balancer & RDS</p>
-        <div class="status">
-            <h3>Infrastructure Status</h3>
-            <p>✅ Load Balancer: Active</p>
-            <p>✅ EC2 Instances: Running</p>
-            <p>✅ RDS Database: Connected</p>
-            <p>✅ SSL/HTTPS: Secured</p>
-        </div>
-        <p>Application deployed successfully!</p>
-    </div>
-</body>
-</html>
-EOF
+sudo git clone ${github_repo} app
+if [ $? -ne 0 ]; then
+    echo "ERROR: Failed to clone GitHub repository"
+    exit 1
 fi
 
 # Set proper ownership
@@ -131,12 +65,12 @@ EOF
 
 # Wait for Docker to be ready and start containers
 echo "Starting Docker containers..."
-sleep 20
+sleep 30
 sudo -u ec2-user docker-compose up -d
 
 # Wait for containers to start
 echo "Waiting for containers to initialize..."
-sleep 30
+sleep 60
 
 # Configure Nginx as reverse proxy
 echo "Configuring Nginx..."

@@ -13,7 +13,7 @@ data "aws_ami" "amazon_linux" {
 resource "aws_instance" "app" {
   count                  = 2
   ami                    = data.aws_ami.amazon_linux.id
-  instance_type          = "t2.micro"
+  instance_type          = "t2.micro"  # Free tier eligible
   subnet_id              = aws_subnet.public[count.index].id
   key_name               = var.key_name
   vpc_security_group_ids = [aws_security_group.ec2.id]
@@ -97,7 +97,7 @@ resource "aws_lb_target_group_attachment" "app" {
 # BI Tool Instance
 resource "aws_instance" "bi_tool" {
   ami                    = data.aws_ami.amazon_linux.id
-  instance_type          = "t2.micro" 
+  instance_type          = "t2.micro"  # Free tier eligible
   subnet_id              = aws_subnet.public[0].id
   key_name               = var.key_name
   vpc_security_group_ids = [aws_security_group.ec2.id]
