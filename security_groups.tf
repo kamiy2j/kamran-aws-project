@@ -88,7 +88,7 @@ resource "aws_security_group" "ec2" {
     }
 
     tags = {
-      Name = "kamran-bi-sg"
+      Name = "kamran-ec2-sg"
     }
   }
 
