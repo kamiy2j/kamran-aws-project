@@ -26,9 +26,6 @@ sudo usermod -aG docker ec2-user
 echo "Waiting for Docker to initialize..."
 sleep 30
 
-# Extract database host (remove port if present)
-DB_HOST_CLEAN=$(echo "${db_host}" | cut -d: -f1)
-
 echo "Running Metabase container..."
 # Run Metabase container
 sudo docker run -d \
@@ -61,7 +58,8 @@ sleep 60
 
 # Test database connectivity
 echo "Testing database connectivity..."
-timeout 10 bash -c "</dev/tcp/$DB_HOST_CLEAN/5432" 2>/dev/null && echo "PostgreSQL reachable" || echo "PostgreSQL unreachable"
+timeout 10 bash -c "</dev/tcp/${pg_host}/5432" 2>/dev/null && echo "PostgreSQL reachable" || echo "PostgreSQL unreachable"
+timeout 10 bash -c "</dev/tcp/${mysql_host}/3306" 2>/dev/null && echo "MySQL reachable" || echo "MySQL unreachable"
 
 # Check if already setup
 SETUP_RESPONSE=$(curl -s http://localhost:5000/api/session/properties 2>/dev/null || echo "")
@@ -73,10 +71,10 @@ if [ -z "$SETUP_TOKEN" ] || [ "$SETUP_TOKEN" == "null" ]; then
 fi
 
 if [ "$SETUP_TOKEN" != "null" ] && [ -n "$SETUP_TOKEN" ]; then
-    echo "Setting up Metabase admin and databases..."
+    echo "Setting up Metabase admin user..."
     
-    # Setup with actual token
-    curl -X POST http://localhost:5000/api/setup \
+    # Setup with just user creation (no database in initial setup)
+    SETUP_RESULT=$(curl -s -X POST http://localhost:5000/api/setup \
     -H "Content-Type: application/json" \
     -d '{
         "token": "'$SETUP_TOKEN'",
@@ -86,50 +84,74 @@ if [ "$SETUP_TOKEN" != "null" ] && [ -n "$SETUP_TOKEN" ]; then
         "email": "kamiy2j@gmail.com",
         "password": "Password123!"
         },
-        "database": {
-        "engine": "postgres",
-        "name": "PostgreSQL",
-        "details": {
-            "host": "'$DB_HOST_CLEAN'",
-            "port": 5432,
-            "dbname": "'${pg_database}'",
-            "user": "'${pg_user}'",
-            "password": "'${pg_password}'"
-        }
-        },
         "prefs": {
         "site_name": "Metabase BI Tool",
         "site_locale": "en"
         }
-    }'
+    }')
     
+    echo "Setup result: $SETUP_RESULT"
     sleep 15
     
-    # Login and add MySQL
-    SESSION_ID=$(curl -s -X POST http://localhost:5000/api/session \
+    # Login to get session
+    echo "Logging in to add databases..."
+    SESSION_RESPONSE=$(curl -s -X POST http://localhost:5000/api/session \
       -H "Content-Type: application/json" \
-      -d '{"username": "kamiy2j@gmail.com", "password": "Password123!"}' | \
-      grep -o '"id":"[^"]*"' | cut -d'"' -f4)
+      -d '{"username": "kamiy2j@gmail.com", "password": "Password123!"}')
     
-    if [ -n "$SESSION_ID" ]; then
-        curl -X POST http://localhost:5000/api/database \
+    SESSION_ID=$(echo "$SESSION_RESPONSE" | grep -o '"id":"[^"]*"' | cut -d'"' -f4)
+    
+    if [ -n "$SESSION_ID" ] && [ "$SESSION_ID" != "null" ]; then
+        echo "Successfully logged in with session: $SESSION_ID"
+        
+        # Add PostgreSQL database
+        echo "Adding PostgreSQL database..."
+        PG_RESULT=$(curl -s -X POST http://localhost:5000/api/database \
+          -H "Content-Type: application/json" \
+          -H "X-Metabase-Session: $SESSION_ID" \
+          -d '{
+            "engine": "postgres",
+            "name": "PostgreSQL Kamran",
+            "details": {
+              "host": "'${pg_host}'",
+              "port": 5432,
+              "dbname": "'${pg_database}'",
+              "user": "'${pg_user}'",
+              "password": "'${pg_password}'",
+              "ssl": false
+            }
+          }')
+        echo "PostgreSQL setup result: $PG_RESULT"
+        
+        sleep 5
+        
+        # Add MySQL database
+        echo "Adding MySQL database..."
+        MYSQL_RESULT=$(curl -s -X POST http://localhost:5000/api/database \
           -H "Content-Type: application/json" \
           -H "X-Metabase-Session: $SESSION_ID" \
           -d '{
             "engine": "mysql",
-            "name": "MySQL",
+            "name": "MySQL Kamran",
             "details": {
               "host": "'${mysql_host}'",
               "port": 3306,
               "dbname": "'${mysql_database}'",
               "user": "'${mysql_user}'",
-              "password": "'${mysql_password}'"
+              "password": "'${mysql_password}'",
+              "ssl": false,
+              "additional-options": "useSSL=false"
             }
-          }'
+          }')
+        echo "MySQL setup result: $MYSQL_RESULT"
+        
         echo "Metabase setup completed!"
+    else
+        echo "Failed to login. Session response: $SESSION_RESPONSE"
     fi
 else
     echo "Metabase already configured or setup token not available"
+    echo "Setup response: $SETUP_RESPONSE"
 fi
 
 # Show final status

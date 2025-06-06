@@ -82,7 +82,7 @@ resource "aws_instance" "bi_tool" {
   }
 
   user_data = base64encode(templatefile("${path.module}/user_data/bi_userdata.sh", {
-    db_host        = split(":", aws_db_instance.postgresql.endpoint)[0]
+    pg_host        = split(":", aws_db_instance.postgresql.endpoint)[0]
     db_username    = var.db_username
     db_password    = var.db_password
     pg_database    = aws_db_instance.postgresql.db_name
