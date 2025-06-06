@@ -10,7 +10,7 @@ sudo dnf update -y
 
 # Install basic packages (AL2023 approach)
 echo "Installing base packages..."
-sudo dnf install -y git curl wget
+sudo dnf install -y git curl wget unzip
 
 # Install Docker (AL2023 specific)
 echo "Installing Docker..."
@@ -48,13 +48,48 @@ git --version || echo "Git installation failed"
 echo "Waiting for Docker to start..."
 sleep 15
 
+# Function for fallback clone
+fallback_clone() {
+    echo "Using fallback method to download repository..."
+    sudo dnf install -y unzip
+    repo_name=$(basename "${github_repo}" .git)
+    zip_url="${github_repo%.git}/archive/refs/heads/main.zip"
+    curl -L "$zip_url" -o /tmp/repo.zip
+    if [ $? -ne 0 ]; then
+        echo "ERROR: Failed to download repository zip"
+        exit 1
+    fi
+    unzip /tmp/repo.zip -d /home/ec2-user
+    if [ $? -ne 0 ]; then
+        echo "ERROR: Failed to extract repository zip"
+        exit 1
+    fi
+    mv "/home/ec2-user/${repo_name}-main" /home/ec2-user/app
+    if [ $? -ne 0 ]; then
+        echo "ERROR: Failed to move extracted directory"
+        exit 1
+    fi
+    rm /tmp/repo.zip
+}
+
 # Clone the repository
 echo "Cloning repository..."
 cd /home/ec2-user
 
-git clone ${github_repo} app
-if [ $? -ne 0 ]; then
-    echo "ERROR: Failed to clone GitHub repository"
+if command -v git &> /dev/null; then
+    git clone ${github_repo} app
+    if [ $? -ne 0 ]; then
+        echo "Git clone failed, attempting fallback..."
+        fallback_clone
+    fi
+else
+    echo "Git not found, using fallback method..."
+    fallback_clone
+fi
+
+# Check if app directory exists
+if [ ! -d "app" ]; then
+    echo "ERROR: Failed to obtain the repository. Cannot proceed."
     exit 1
 fi
 

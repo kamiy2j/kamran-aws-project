@@ -32,5 +32,5 @@ variable "db_password" {
 variable "github_repo" {
   description = "GitHub repository URL"
   type        = string
-  default     = "https://github.com/kamiy2j/kamran-aws-project.git"
+  default     = "https://github.com/kamiy2j/kamran-aws-project"
 }
