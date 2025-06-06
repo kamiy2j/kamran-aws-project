@@ -17,8 +17,11 @@ resource "aws_instance" "app" {
   subnet_id              = aws_subnet.public[count.index].id
   key_name               = var.key_name
   vpc_security_group_ids = [aws_security_group.ec2.id]
-  volume_size = 12
-  volume_type = "gp3"
+
+  root_block_device {
+    volume_size = 12
+    volume_type = "gp3"
+  }
 
   user_data = base64encode(templatefile("${path.module}/user_data/app_userdata.sh", {
     github_repo    = var.github_repo
