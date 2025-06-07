@@ -37,7 +37,8 @@ async function initializeDatabases() {
         id SERIAL PRIMARY KEY,
         name VARCHAR(100) NOT NULL,
         email VARCHAR(100) UNIQUE NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
@@ -48,12 +49,14 @@ async function initializeDatabases() {
         id INT AUTO_INCREMENT PRIMARY KEY,
         name VARCHAR(100) NOT NULL,
         email VARCHAR(100) UNIQUE NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       )
     `);
     await mysqlConnection.end();
 
     console.log('Database tables initialized successfully');
+  
   } catch (error) {
     console.error('Database initialization error:', error);
   }
@@ -64,7 +67,7 @@ app.get('/health', (req, res) => {
   res.json({ 
     status: 'healthy', 
     timestamp: new Date().toISOString(),
-    version: '1.0.0',
+    version: '1.0.1',
     environment: process.env.NODE_ENV || 'development'
   });
 });
@@ -80,7 +83,7 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
-// Add new user (to PostgreSQL)
+// Add new user (to both databases)
 app.post('/api/users', async (req, res) => {
   const { name, email } = req.body;
   
@@ -89,12 +92,13 @@ app.post('/api/users', async (req, res) => {
   }
 
   try {
+    // Insert into PostgreSQL
     const result = await pgPool.query(
       'INSERT INTO users (name, email) VALUES ($1, $2) RETURNING *',
       [name, email]
     );
     
-    // Also insert into MySQL for BI tool demonstration
+    // Also insert into MySQL for BI tool
     try {
       const mysqlConnection = await mysql.createConnection(mysqlConfig);
       await mysqlConnection.execute(
@@ -102,8 +106,9 @@ app.post('/api/users', async (req, res) => {
         [name, email]
       );
       await mysqlConnection.end();
+      console.log('User added to both databases');
     } catch (mysqlError) {
-      console.warn('MySQL insert failed (this is ok for demo):', mysqlError.message);
+      console.warn('MySQL insert failed:', mysqlError.message);
     }
 
     res.status(201).json(result.rows[0]);
@@ -114,6 +119,50 @@ app.post('/api/users', async (req, res) => {
     } else {
       res.status(500).json({ error: 'Failed to add user' });
     }
+  }
+});
+
+// Delete user (from both databases)
+app.delete('/api/users/:id', async (req, res) => {
+  const userId = parseInt(req.params.id);
+  
+  if (!userId || isNaN(userId)) {
+    return res.status(400).json({ error: 'Valid user ID is required' });
+  }
+
+  try {
+    // Get user details before deletion
+    const userResult = await pgPool.query('SELECT * FROM users WHERE id = $1', [userId]);
+    
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = userResult.rows[0];
+
+    // Delete from PostgreSQL
+    await pgPool.query('DELETE FROM users WHERE id = $1', [userId]);
+    
+    // Also delete from MySQL
+    try {
+      const mysqlConnection = await mysql.createConnection(mysqlConfig);
+      await mysqlConnection.execute(
+        'DELETE FROM users WHERE email = ?',
+        [user.email]
+      );
+      await mysqlConnection.end();
+      console.log('User deleted from both databases');
+    } catch (mysqlError) {
+      console.warn('MySQL delete failed:', mysqlError.message);
+    }
+
+    res.json({ 
+      message: 'User deleted successfully', 
+      deleted_user: user 
+    });
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    res.status(500).json({ error: 'Failed to delete user' });
   }
 });
 
@@ -143,7 +192,7 @@ app.get('/api/stats', async (req, res) => {
       await mysqlConnection.end();
       mysqlCount = mysqlRows[0].count;
     } catch (mysqlError) {
-      console.warn('MySQL stats failed (this is ok for demo):', mysqlError.message);
+      console.warn('MySQL stats failed:', mysqlError.message);
     }
 
     res.json({
@@ -188,15 +237,59 @@ app.get('/api/test-connections', async (req, res) => {
   res.json(results);
 });
 
+// Bulk operations for testing
+app.post('/api/users/bulk', async (req, res) => {
+  const { users } = req.body;
+  
+  if (!users || !Array.isArray(users)) {
+    return res.status(400).json({ error: 'Users array is required' });
+  }
+
+  try {
+    const results = [];
+    for (const user of users) {
+      if (user.name && user.email) {
+        const result = await pgPool.query(
+          'INSERT INTO users (name, email) VALUES ($1, $2) RETURNING *',
+          [user.name, user.email]
+        );
+        results.push(result.rows[0]);
+        
+        // Also insert into MySQL
+        try {
+          const mysqlConnection = await mysql.createConnection(mysqlConfig);
+          await mysqlConnection.execute(
+            'INSERT INTO users (name, email) VALUES (?, ?)',
+            [user.name, user.email]
+          );
+          await mysqlConnection.end();
+        } catch (mysqlError) {
+          console.warn('MySQL bulk insert failed for user:', user.email);
+        }
+      }
+    }
+    
+    res.status(201).json({
+      message: `${results.length} users added successfully`,
+      users: results
+    });
+  } catch (error) {
+    console.error('Error in bulk user creation:', error);
+    res.status(500).json({ error: 'Failed to create users in bulk' });
+  }
+});
+
 // Root endpoint
 app.get('/', (req, res) => {
   res.json({
     message: 'Kamran Demo API Server',
-    version: '1.0.0',
+    version: '1.0.1',
     endpoints: [
       'GET /health - Health check',
       'GET /api/users - Get all users',
       'POST /api/users - Add new user',
+      'DELETE /api/users/:id - Delete user',
+      'POST /api/users/bulk - Add multiple users',
       'GET /api/mysql/users - Get users from MySQL',
       'GET /api/stats - Get database statistics',
       'GET /api/test-connections - Test database connections'
@@ -245,6 +338,7 @@ async function startServer() {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📊 Health check: http://localhost:${PORT}/health`);
       console.log(`👥 Users API: http://localhost:${PORT}/api/users`);
+      console.log(`❌ Delete API: http://localhost:${PORT}/api/users/:id`);
       console.log(`📈 Stats API: http://localhost:${PORT}/api/stats`);
       console.log(`🔍 Test connections: http://localhost:${PORT}/api/test-connections`);
       console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
