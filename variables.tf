@@ -7,13 +7,13 @@ variable "aws_region" {
 variable "domain_name" {
   description = "Domain name"
   type        = string
-  default     = "kamranshahid.com" # Your actual domain
+  default     = "kamranshahid.com"
 }
 
 variable "key_name" {
   description = "AWS Key Pair name"
   type        = string
-  default     = "tf_test"  # Your AWS key pair
+  default     = "tf_test"
 }
 
 variable "db_username" {
