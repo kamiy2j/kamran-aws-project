@@ -64,11 +64,14 @@ async function initializeDatabases() {
 
 // Routes
 app.get('/health', (req, res) => {
+  const os = require('os');
   res.json({ 
     status: 'healthy', 
     timestamp: new Date().toISOString(),
     version: '1.0.1',
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || 'development',
+    hostname: os.hostname(),
+    instance_id: process.env.EC2_INSTANCE_ID || 'unknown'
   });
 });
 

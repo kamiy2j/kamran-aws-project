@@ -209,11 +209,11 @@ function App() {
           <div className="stats-grid">
             <div className="stat-card">
               <h3>Auto Scaling</h3>
-              <p>✅ Active</p>
+              <p>1</p>
             </div>
-            <div className="stat-card">
+            <div className="stat-card">s
               <h3>Load Balancer</h3>
-              <p>✅ Healthy</p>
+              <p>2</p>
             </div>
             <div className="stat-card">
               <h3>RDS Database</h3>
@@ -229,7 +229,7 @@ function App() {
         <section className="dashboard-info">
           <h2>BI Dashboard</h2>
           <p>
-            Visit your Metabase dashboard at: 
+            Visit your Metabase dashboard at:  
             <a href="https://bi.kamranshahid.com" target="_blank" rel="noopener noreferrer">
               https://bi.kamranshahid.com
             </a>
