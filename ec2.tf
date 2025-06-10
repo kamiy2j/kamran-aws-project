@@ -68,6 +68,57 @@ resource "aws_autoscaling_group" "app" {
   }
 }
 
+resource "aws_autoscaling_policy" "scale_up" {
+  name                   = "kamran-scale-up"
+  scaling_adjustment     = 1
+  adjustment_type        = "ChangeInCapacity"
+  cooldown              = 300
+  autoscaling_group_name = aws_autoscaling_group.app.name
+}
+
+resource "aws_autoscaling_policy" "scale_down" {
+  name                   = "kamran-scale-down"
+  scaling_adjustment     = -1
+  adjustment_type        = "ChangeInCapacity"
+  cooldown              = 300
+  autoscaling_group_name = aws_autoscaling_group.app.name
+}
+
+# ALB Request Count Alarm
+resource "aws_cloudwatch_metric_alarm" "requests_high" {
+  alarm_name          = "kamran-requests-high"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = "1"
+  metric_name         = "RequestCountPerTarget"
+  namespace           = "AWS/ApplicationELB"
+  period              = "60"
+  statistic           = "Sum"
+  threshold           = "10"
+  alarm_description   = "Scale up when requests > 10 per minute per target"
+  alarm_actions       = [aws_autoscaling_policy.scale_up.arn]
+
+  dimensions = {
+    TargetGroup = aws_lb_target_group.app.arn_suffix
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "requests_low" {
+  alarm_name          = "kamran-requests-low"
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = "2"
+  metric_name         = "RequestCountPerTarget"
+  namespace           = "AWS/ApplicationELB"
+  period              = "60"
+  statistic           = "Sum"
+  threshold           = "5"
+  alarm_description   = "Scale down when requests < 5 per minute per target"
+  alarm_actions       = [aws_autoscaling_policy.scale_down.arn]
+
+  dimensions = {
+    TargetGroup = aws_lb_target_group.app.arn_suffix
+  }
+}
+
 # BI Tool Instance
 resource "aws_instance" "bi_tool" {
   ami                    = data.aws_ami.amazon_linux.id

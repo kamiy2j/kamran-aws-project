@@ -60,9 +60,14 @@ sudo docker image prune -f
 echo "Creating network..."
 sudo -u ec2-user docker network create app-network
 
+# Get instance metadata
+echo "Getting instance metadata..."
+INSTANCE_ID=$(TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" -s) && curl -H "X-aws-ec2-metadata-token: $TOKEN" -s http://169.254.169.254/latest/meta-data/instance-id)
+echo "Instance ID: $INSTANCE_ID"
+
 # Run containers with network
 echo "Starting containers..."
-sudo -u ec2-user docker run -d --name backend --network app-network -p 5000:5000 --env-file .env --restart unless-stopped app-backend
+sudo -u ec2-user docker run -d --name backend --network app-network -p 5000:5000 --env-file .env -e EC2_INSTANCE_ID=$INSTANCE_ID --restart unless-stopped app-backend
 sudo -u ec2-user docker run -d --name frontend --network app-network -p 3000:3000 --restart unless-stopped app-frontend
 
 # Configure Nginx
