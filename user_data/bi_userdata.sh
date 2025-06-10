@@ -8,6 +8,7 @@ echo "=== BI Tool User Data Script Started at $(date) ==="
 echo "Installing packages..."
 sudo dnf update -y
 sudo dnf install -y docker nginx python3-pip
+sudo dnf install -y nginx docker git
 
 # Install certbot
 sudo pip3 install certbot certbot-nginx
@@ -196,6 +197,16 @@ else
     echo "Metabase already configured or setup token not available"
     echo "Setup response: $SETUP_RESPONSE"
 fi
+
+# Create dashboards after Metabase setup
+echo "Setting up dashboards..."
+sleep 60
+
+# Clone repo and run dashboard script
+cd /home/ec2-user
+git clone ${github_repo} dashboard-repo
+chmod +x dashboard-repo/dashboard/create_dashboards.sh
+./dashboard-repo/dashboard/scripts/create_dashboards.sh
 
 # Show final status
 echo "=== Final Status ==="
