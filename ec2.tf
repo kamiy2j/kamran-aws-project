@@ -105,13 +105,13 @@ resource "aws_cloudwatch_metric_alarm" "requests_high" {
 resource "aws_cloudwatch_metric_alarm" "requests_low" {
   alarm_name          = "kamran-requests-low"
   comparison_operator = "LessThanThreshold"
-  evaluation_periods  = "2"
+  evaluation_periods  = "15"
   metric_name         = "RequestCountPerTarget"
   namespace           = "AWS/ApplicationELB"
   period              = "60"
   statistic           = "Sum"
   threshold           = "5"
-  alarm_description   = "Scale down when requests < 5 per minute per target"
+  alarm_description   = "Scale down when requests < 5 per minute per target for 15 minutes"
   alarm_actions       = [aws_autoscaling_policy.scale_down.arn]
 
   dimensions = {
