@@ -211,7 +211,7 @@ function App() {
               <h3>Auto Scaling</h3>
               <p>1</p>
             </div>
-            <div className="stat-card">s
+            <div className="stat-card">
               <h3>Load Balancer</h3>
               <p>2</p>
             </div>
