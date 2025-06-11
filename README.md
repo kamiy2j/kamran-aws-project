@@ -82,7 +82,7 @@ kamran-aws-project/
 │       └── package.json     # Node.js dependencies
 └── user_data/
     ├── app_userdata.sh      # EC2 setup script for app instances
-    └── bi.sh       # EC2 setup script for BI instance
+    └── bi_userdata.sh       # EC2 setup script for BI instance
 ```
 
 ## 🔧 Infrastructure Components
