@@ -105,7 +105,7 @@ resource "aws_cloudwatch_metric_alarm" "requests_high" {
 resource "aws_cloudwatch_metric_alarm" "requests_low" {
   alarm_name          = "kamran-requests-low"
   comparison_operator = "LessThanThreshold"
-  evaluation_periods  = "15"
+  evaluation_periods  = "10"
   metric_name         = "RequestCountPerTarget"
   namespace           = "AWS/ApplicationELB"
   period              = "60"

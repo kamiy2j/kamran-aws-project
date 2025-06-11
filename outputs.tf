@@ -10,7 +10,7 @@ output "app_url" {
 
 output "bi_tool_url" {
   description = "BI Tool URL"
-  value       = "http://bi.${var.domain_name}:5000"
+  value       = "http://bi.${var.domain_name}"
 }
 
 output "mysql_endpoint" {
