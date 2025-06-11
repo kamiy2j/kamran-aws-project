@@ -26,7 +26,7 @@ This project deploys a scalable, secure, and containerized AWS environment featu
 ### 1. Clone and Configure
 
 ```bash
-git clone [https://github.com/kamiy2j/kamran-aws-project](https://github.com/kamiy2j/kamran-aws-project)
+git clone https://github.com/kamiy2j/kamran-aws-project
 cd kamran-aws-project
 ```
 
