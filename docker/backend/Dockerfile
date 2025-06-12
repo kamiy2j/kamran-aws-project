@@ -1,14 +1,22 @@
-# Stage 1: Build dependencies  
+# Multi-stage build for Node.js backend
 FROM node:20-alpine AS builder
+
 WORKDIR /app
 COPY package*.json ./
-RUN npm install --only=production && npm cache clean --force
 
-# Stage 2: Runtime
-FROM node:20-alpine AS production
+# Use npm install instead of npm ci for development
+RUN npm install --only=production
+
+# Production stage
+FROM node:20-alpine
 WORKDIR /app
-COPY --from=builder --chown=node:node /app/node_modules ./node_modules
-COPY --chown=node:node . .
-USER node
+
+# Copy node_modules from builder stage
+COPY --from=builder /app/node_modules ./node_modules
+COPY . .
+
 EXPOSE 5000
+
+USER node
+
 CMD ["npm", "start"]
