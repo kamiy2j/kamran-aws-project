@@ -6,3 +6,4 @@ RUN npm install --only=production && npm cache clean --force
 COPY . .
 USER node
 EXPOSE 5000
+CMD ["npm", "start"]
