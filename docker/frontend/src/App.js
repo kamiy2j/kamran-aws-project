@@ -27,7 +27,7 @@ function App() {
   const fetchUsers = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`${API_URL}/api/users`);
+      const response = await axios.get(`${API_URL}/users`);
       setUsers(response.data);
     } catch (error) {
       console.error('Error fetching users:', error);
@@ -38,7 +38,7 @@ function App() {
 
   const fetchStats = async () => {
     try {
-      const response = await axios.get(`${API_URL}/api/stats`);
+      const response = await axios.get(`${API_URL}/stats`);
       setStats(response.data);
     } catch (error) {
       console.error('Error fetching stats:', error);
@@ -49,7 +49,7 @@ function App() {
     e.preventDefault();
     try {
       setLoading(true);
-      await axios.post(`${API_URL}/api/users`, newUser);
+      await axios.post(`${API_URL}/users`, newUser);
       setNewUser({ name: '', email: '' });
       await fetchUsers();
       await fetchStats();
@@ -68,7 +68,7 @@ function App() {
 
     try {
       setDeleteLoading(prev => ({ ...prev, [userId]: true }));
-      await axios.delete(`${API_URL}/api/users/${userId}`);
+      await axios.delete(`${API_URL}/users/${userId}`);
       await fetchUsers();
       await fetchStats();
     } catch (error) {
@@ -88,7 +88,7 @@ function App() {
 
     try {
       setLoading(true);
-      await axios.post(`${API_URL}/api/users/bulk`, { users: sampleUsers });
+      await axios.post(`${API_URL}/users/bulk`, { users: sampleUsers });
       await fetchUsers();
       await fetchStats();
     } catch (error) {
