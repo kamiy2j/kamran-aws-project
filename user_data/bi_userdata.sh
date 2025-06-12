@@ -90,85 +90,85 @@ sudo systemctl reload nginx
 # Wait a bit more for everything to stabilize
 sleep 30
 
-# # GitHub Gist settings
-# GITHUB_TOKEN=""  # Your GitHub personal access token with gist permissions
-# GIST_ID="" # Existing gist ID if you have one, leave empty to create a new one
+# GitHub Gist settings
+GITHUB_TOKEN=""  # Your GitHub personal access token with gist permissions
+GIST_ID="" # Existing gist ID if you have one, leave empty to create a new one
 
-# # Function to backup certificates to GitHub gist
-# backup_certificates() {
-#     if [ -d "/etc/letsencrypt/live/bi.kamranshahid.com" ]; then
-#         echo "Backing up certificates to GitHub gist..."
+# Function to backup certificates to GitHub gist
+backup_certificates() {
+    if [ -d "/etc/letsencrypt/live/bi.kamranshahid.com" ]; then
+        echo "Backing up certificates to GitHub gist..."
         
-#         # Create tar archive of certificates
-#         sudo tar -czf /tmp/certs_backup.tar.gz -C /etc/letsencrypt .
+        # Create tar archive of certificates
+        sudo tar -czf /tmp/certs_backup.tar.gz -C /etc/letsencrypt .
         
-#         # Base64 encode for gist upload
-#         CERT_DATA=$(base64 -w 0 /tmp/certs_backup.tar.gz)
+        # Base64 encode for gist upload
+        CERT_DATA=$(base64 -w 0 /tmp/certs_backup.tar.gz)
         
-#         # Update existing gist
-#         curl -s -X PATCH \
-#             -H "Authorization: token $GITHUB_TOKEN" \
-#             -H "Content-Type: application/json" \
-#             -d "{
-#                 \"files\": {
-#                     \"certificates.tar.gz.b64\": {
-#                         \"content\": \"$CERT_DATA\"
-#                     }
-#                 }
-#             }" \
-#             https://api.github.com/gists/$GIST_ID
+        # Update existing gist
+        curl -s -X PATCH \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{
+                \"files\": {
+                    \"certificates.tar.gz.b64\": {
+                        \"content\": \"$CERT_DATA\"
+                    }
+                }
+            }" \
+            https://api.github.com/gists/$GIST_ID
         
-#         rm -f /tmp/certs_backup.tar.gz
-#         echo "Certificates backed up successfully"
-#     fi
-# }
+        rm -f /tmp/certs_backup.tar.gz
+        echo "Certificates backed up successfully"
+    fi
+}
 
-# # Function to restore certificates from GitHub gist
-# restore_certificates() {
-#     echo "Checking for certificate backup..."
+# Function to restore certificates from GitHub gist
+restore_certificates() {
+    echo "Checking for certificate backup..."
     
-#     if [ -n "$GIST_ID" ]; then
-#         # Download from existing gist
-#         CERT_DATA=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-#             https://api.github.com/gists/$GIST_ID | \
-#             grep -o '"content":"[^"]*"' | cut -d'"' -f4)
+    if [ -n "$GIST_ID" ]; then
+        # Download from existing gist
+        CERT_DATA=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            https://api.github.com/gists/$GIST_ID | \
+            grep -o '"content":"[^"]*"' | cut -d'"' -f4)
         
-#         if [ -n "$CERT_DATA" ]; then
-#             echo "Restoring certificates from backup..."
+        if [ -n "$CERT_DATA" ]; then
+            echo "Restoring certificates from backup..."
             
-#             # Decode and extract
-#             echo "$CERT_DATA" | base64 -d > /tmp/certs_restore.tar.gz
-#             sudo mkdir -p /etc/letsencrypt
-#             sudo tar -xzf /tmp/certs_restore.tar.gz -C /etc/letsencrypt
-#             sudo chmod -R 600 /etc/letsencrypt
+            # Decode and extract
+            echo "$CERT_DATA" | base64 -d > /tmp/certs_restore.tar.gz
+            sudo mkdir -p /etc/letsencrypt
+            sudo tar -xzf /tmp/certs_restore.tar.gz -C /etc/letsencrypt
+            sudo chmod -R 600 /etc/letsencrypt
             
-#             rm -f /tmp/certs_restore.tar.gz
-#             echo "Certificates restored successfully"
-#             return 0
-#         fi
-#     fi
+            rm -f /tmp/certs_restore.tar.gz
+            echo "Certificates restored successfully"
+            return 0
+        fi
+    fi
     
-#     echo "No certificate backup found"
-#     return 1
-# }
+    echo "No certificate backup found"
+    return 1
+}
 
-# # SSL Certificate handling
-# echo "Checking for existing SSL certificate..."
+# SSL Certificate handling
+echo "Checking for existing SSL certificate..."
 
-# # Try to restore from backup first
-# if restore_certificates; then
-#     echo "Using restored certificates"
-#     sudo certbot --nginx -d bi.kamranshahid.com --non-interactive --keep-until-expiring
-# else
-#     echo "No backup found, requesting new certificate..."
+# Try to restore from backup first
+if restore_certificates; then
+    echo "Using restored certificates"
+    sudo certbot --nginx -d bi.kamranshahid.com --non-interactive --keep-until-expiring
+else
+    echo "No backup found, requesting new certificate..."
     
-#     if sudo certbot --nginx -d bi.kamranshahid.com --non-interactive --agree-tos --email kamiy2j@gmail.com; then
-#         echo "Certificate obtained successfully"
-#         backup_certificates
-#     else
-#         echo "Failed to obtain certificate - rate limited"
-#     fi
-# fi
+    if sudo certbot --nginx -d bi.kamranshahid.com --non-interactive --agree-tos --email kamiy2j@gmail.com; then
+        echo "Certificate obtained successfully"
+        backup_certificates
+    else
+        echo "Failed to obtain certificate - rate limited"
+    fi
+fi
 
 # Test database connectivity
 echo "Testing database connectivity..."
