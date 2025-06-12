@@ -3,12 +3,16 @@
 exec > >(tee /var/log/user-data.log) 2>&1
 echo "=== User Data Script Started at $$(date) ==="
 
-# Install packages
+# Install packages (including docker-compose)
 sudo dnf update -y
 sudo dnf install -y nginx docker git
 sudo systemctl enable nginx docker
 sudo systemctl start nginx docker
 sudo usermod -aG docker ec2-user
+
+# Install docker-compose
+sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
 
 sudo dnf clean all
 sudo rm -rf /var/cache/dnf/*
@@ -29,6 +33,11 @@ sudo git clone ${github_repo} app
 sudo chown -R ec2-user:ec2-user app
 cd app/docker
 
+# Get instance metadata
+echo "Getting instance metadata..."
+INSTANCE_ID=$(TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" -s) && curl -H "X-aws-ec2-metadata-token: $TOKEN" -s http://169.254.169.254/latest/meta-data/instance-id)
+echo "Instance ID: $INSTANCE_ID"
+
 # Create .env
 cat <<EOF > .env
 PG_HOST=${pg_host}
@@ -42,33 +51,18 @@ MYSQL_DATABASE=${mysql_database}
 MYSQL_USER=${mysql_user}
 MYSQL_PASSWORD=${mysql_password}
 REACT_APP_API_URL=/api
+EC2_INSTANCE_ID=$INSTANCE_ID
 EOF
 
 # Clear Docker space
 sudo docker system prune -af
 
-# Build containers sequentially to reduce memory usage
-echo "Building backend..."
-sudo -u ec2-user docker build -t app-backend ./backend
-sudo docker image prune -f
+# Use docker-compose instead of manual commands
+echo "Starting application with docker-compose..."
+sudo -u ec2-user docker-compose up -d --build
 
-echo "Building frontend..."
-sudo -u ec2-user docker build -t app-frontend ./frontend
-sudo docker image prune -f
-
-# Create network
-echo "Creating network..."
-sudo -u ec2-user docker network create app-network
-
-# Get instance metadata
-echo "Getting instance metadata..."
-INSTANCE_ID=$(TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" -s) && curl -H "X-aws-ec2-metadata-token: $TOKEN" -s http://169.254.169.254/latest/meta-data/instance-id)
-echo "Instance ID: $INSTANCE_ID"
-
-# Run containers with network
-echo "Starting containers..."
-sudo -u ec2-user docker run -d --name backend --network app-network -p 5000:5000 --env-file .env -e EC2_INSTANCE_ID=$INSTANCE_ID --restart unless-stopped app-backend
-sudo -u ec2-user docker run -d --name frontend --network app-network -p 3000:3000 --restart unless-stopped app-frontend
+# Wait for containers to be ready
+sleep 30
 
 # Configure Nginx
 sudo tee /etc/nginx/conf.d/app.conf > /dev/null << 'EOF'
@@ -86,7 +80,6 @@ sudo systemctl restart nginx
 
 # Final cleanup
 sudo docker image prune -f
-sudo docker container prune -f
 
 sleep 30
 curl localhost/health
