@@ -1,14 +1,14 @@
-# Multi-stage build for React frontend
+# Stage 1: Build dependencies  
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm install --production && npm cache clean --force
-COPY . .
-RUN npm run build && rm -rf node_modules src
+RUN npm install --only=production && npm cache clean --force
 
-# Production stage
-FROM nginx:alpine
-COPY --from=builder /app/build /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-EXPOSE 3000
-CMD ["nginx", "-g", "daemon off;"]
+# Stage 2: Runtime with minimal layers
+FROM node:20-alpine AS production
+WORKDIR /app
+COPY --from=builder /app/node_modules ./node_modules
+COPY . .
+USER node
+EXPOSE 5000
+CMD ["npm", "start"]

@@ -91,8 +91,8 @@ sudo systemctl reload nginx
 sleep 30
 
 # GitHub Gist settings
-GITHUB_TOKEN=""  # Your GitHub personal access token with gist permissions
-GIST_ID="" # Existing gist ID if you have one, leave empty to create a new one
+GITHUB_TOKEN=""  
+GIST_ID=""
 
 # Function to backup certificates to GitHub gist
 backup_certificates() {
