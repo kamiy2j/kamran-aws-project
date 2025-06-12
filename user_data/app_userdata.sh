@@ -54,6 +54,8 @@ REACT_APP_API_URL=/api
 EC2_INSTANCE_ID=$INSTANCE_ID
 EOF
 
+sudo chown ec2-user:ec2-user /home/ec2-user/app/docker/.env
+
 # Clear Docker space
 sudo docker system prune -af
 

@@ -16,16 +16,8 @@ services:
       dockerfile: Dockerfile
     ports:
       - "5000:5000"
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
       - PORT=5000
-      - PG_HOST=${PG_HOST:-localhost}
-      - PG_PORT=${PG_PORT:-5432}
-      - PG_DATABASE=${PG_DATABASE:-devopsdb}
-      - PG_USER=${PG_USER:-admin}
-      - PG_PASSWORD=${PG_PASSWORD:-Password123!}
-      - MYSQL_HOST=${MYSQL_HOST:-localhost}
-      - MYSQL_PORT=${MYSQL_PORT:-3306}
-      - MYSQL_DATABASE=${MYSQL_DATABASE:-devopsdb}
-      - MYSQL_USER=${MYSQL_USER:-admin}
-      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-Password123!}
