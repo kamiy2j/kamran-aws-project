@@ -255,10 +255,13 @@ openssl s_client -connect your-domain.com:443
 
 ## 📄 License
 
+
 This project is licensed under the MIT License - see the LICENSE file for details.
 
 ---
 
 **Created by**: Kamran Shahid
+
 **Project Type**: AWS Infrastructure with Terraform  
+
 **Last Updated**: June 2025
