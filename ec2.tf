@@ -111,7 +111,7 @@ resource "aws_cloudwatch_metric_alarm" "requests_low" {
   period              = "60"
   statistic           = "Sum"
   threshold           = "5"
-  alarm_description   = "Scale down when requests < 5 per minute per target for 15 minutes"
+  alarm_description   = "Scale down when requests < 5 per minute per target for 10 minutes"
   alarm_actions       = [aws_autoscaling_policy.scale_down.arn]
 
   dimensions = {
